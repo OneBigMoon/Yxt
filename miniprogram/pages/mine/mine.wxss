@@ -1,0 +1,152 @@
+.mine-page {
+  padding-bottom: 20rpx;
+}
+
+.user-section {
+  background: linear-gradient(180deg, #1989fa 0%, #4facfe 100%);
+  padding: 60rpx 30rpx 40rpx;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+}
+
+.avatar {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 50%;
+  border: 4rpx solid rgba(255, 255, 255, 0.5);
+  margin-right: 24rpx;
+}
+
+.user-detail {
+  flex: 1;
+}
+
+.nickname {
+  font-size: 36rpx;
+  font-weight: bold;
+  color: #fff;
+  display: block;
+  margin-bottom: 8rpx;
+}
+
+.user-id {
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.shop-section {
+  margin: 24rpx;
+  padding: 24rpx;
+}
+
+.shop-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 16rpx;
+}
+
+.shop-name {
+  font-size: 30rpx;
+  font-weight: bold;
+  color: #333;
+  margin-left: 12rpx;
+}
+
+.shop-address {
+  display: flex;
+  align-items: center;
+  padding: 16rpx;
+  background: #f5f5f5;
+  border-radius: 8rpx;
+}
+
+.address-text {
+  flex: 1;
+  font-size: 26rpx;
+  color: #666;
+  margin: 0 12rpx;
+}
+
+.appointment-section {
+  margin: 24rpx;
+}
+
+.section-title {
+  font-size: 32rpx;
+  font-weight: bold;
+  color: #333;
+  margin-bottom: 20rpx;
+}
+
+.appointment-list {
+  margin-top: 20rpx;
+}
+
+.appointment-item {
+  padding: 24rpx;
+  margin-bottom: 16rpx;
+}
+
+.apt-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16rpx;
+}
+
+.apt-services {
+  font-size: 30rpx;
+  font-weight: bold;
+  color: #333;
+  flex: 1;
+}
+
+.status-pending {
+  color: #ff976a;
+  background: rgba(255, 151, 106, 0.1);
+  padding: 4rpx 16rpx;
+  border-radius: 8rpx;
+  font-size: 24rpx;
+}
+
+.status-completed {
+  color: #07c160;
+  background: rgba(7, 193, 96, 0.1);
+  padding: 4rpx 16rpx;
+  border-radius: 8rpx;
+  font-size: 24rpx;
+}
+
+.status-cancelled {
+  color: #999;
+  background: rgba(153, 153, 153, 0.1);
+  padding: 4rpx 16rpx;
+  border-radius: 8rpx;
+  font-size: 24rpx;
+}
+
+.apt-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.apt-row {
+  display: flex;
+  align-items: center;
+  font-size: 26rpx;
+  color: #666;
+}
+
+.apt-row van-icon {
+  margin-right: 8rpx;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  padding: 40rpx;
+}

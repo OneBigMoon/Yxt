@@ -1,0 +1,90 @@
+<view class="mine-page">
+  <!-- 用户信息 -->
+  <view class="user-section">
+    <view class="user-info">
+      <image
+        class="avatar"
+        src="{{userInfo.avatar_url || '/images/default-avatar.png'}}"
+        mode="aspectFill"
+      ></image>
+      <view class="user-detail">
+        <text class="nickname">{{userInfo.nick_name || '未登录'}}</text>
+        <text class="user-id" wx:if="{{userInfo.phone}}">
+          手机号：{{userInfo.phone}}
+        </text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 店铺信息 -->
+  <view class="shop-section card" wx:if="{{clinicInfo.name}}">
+    <view class="shop-header">
+      <van-icon name="shop-o" size="20" color="#1989fa" />
+      <text class="shop-name">{{clinicInfo.name}}</text>
+    </view>
+    <view class="shop-address" bindtap="openLocation">
+      <van-icon name="location-o" size="16" color="#666" />
+      <text class="address-text">{{clinicInfo.address}}</text>
+      <van-icon name="arrow" size="16" color="#999" />
+    </view>
+  </view>
+
+  <!-- 预约列表 -->
+  <view class="appointment-section">
+    <view class="section-title">我的预约</view>
+
+    <van-tabs
+      active="{{activeTab}}"
+      bind:change="onTabChange"
+      color="#1989fa"
+      line-width="60rpx"
+    >
+      <van-tab title="待核销" name="pending"></van-tab>
+      <van-tab title="已完成" name="completed"></van-tab>
+      <van-tab title="已取消" name="cancelled"></van-tab>
+    </van-tabs>
+
+    <view class="appointment-list">
+      <view
+        class="appointment-item card"
+        wx:for="{{appointments}}"
+        wx:key="_id"
+        bindtap="viewDetail"
+        data-id="{{item._id}}"
+      >
+        <view class="apt-header">
+          <text class="apt-services">{{item.service_names}}</text>
+          <text class="status-{{item.status}}">
+            {{item.status === 'pending' ? '待核销' : item.status === 'completed' ? '已完成' : '已取消'}}
+          </text>
+        </view>
+        <view class="apt-info">
+          <view class="apt-row">
+            <van-icon name="clock-o" size="14" color="#999" />
+            <text>{{item.date}} {{item.start_time}}-{{item.end_time}}</text>
+          </view>
+          <view class="apt-row" wx:if="{{item.technician_name}}">
+            <van-icon name="user-o" size="14" color="#999" />
+            <text>技师：{{item.technician_name}}</text>
+          </view>
+        </view>
+      </view>
+
+      <van-empty
+        wx:if="{{appointments.length === 0 && !loading}}"
+        description="暂无预约记录"
+        image="search"
+      />
+    </view>
+  </view>
+
+  <!-- 加载状态 -->
+  <van-loading
+    wx:if="{{loading}}"
+    class="loading"
+    type="spinner"
+    size="24"
+  >
+    加载中...
+  </van-loading>
+</view>

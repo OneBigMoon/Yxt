@@ -1,0 +1,74 @@
+<view class="index-page">
+  <!-- 停业公告 -->
+  <view class="notice-bar" wx:if="{{closureNotice}}">
+    <van-notice-bar
+      left-icon="info-o"
+      text="{{closureNotice}}"
+      background="#fff3e0"
+      color="#ff976a"
+    />
+  </view>
+
+  <!-- 门诊信息 -->
+  <view class="clinic-info card">
+    <view class="clinic-header">
+      <image class="clinic-logo" src="/images/logo.jpg" mode="aspectFit"></image>
+      <view class="clinic-detail">
+        <text class="clinic-name">{{clinicInfo.name || '壹心堂'}}</text>
+        <text class="clinic-phone" bindtap="callPhone">
+          <van-icon name="phone" /> {{clinicInfo.phone || '010-12345678'}}
+        </text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 健康小知识 -->
+  <view class="section">
+    <view class="section-title">
+      <text class="title-text">健康小知识</text>
+      <text class="title-more" bindtap="viewAllArticles">查看全部 ></text>
+    </view>
+
+    <view class="article-list">
+      <view
+        class="article-item card"
+        wx:for="{{articles}}"
+        wx:key="_id"
+        bindtap="viewArticle"
+        data-id="{{item._id}}"
+      >
+        <van-image
+          class="article-cover"
+          width="200rpx"
+          height="150rpx"
+          fit="cover"
+          src="{{item.cover_image}}"
+          use-loading-slot
+        >
+          <van-loading type="spinner" size="20" slot="loading" />
+        </van-image>
+        <view class="article-content">
+          <text class="article-title">{{item.title}}</text>
+          <text class="article-summary">{{item.summary}}</text>
+          <text class="article-time">{{item.created_at}}</text>
+        </view>
+      </view>
+
+      <van-empty
+        wx:if="{{articles.length === 0 && !loading}}"
+        description="暂无健康知识"
+        image="search"
+      />
+    </view>
+  </view>
+
+  <!-- 加载状态 -->
+  <van-loading
+    wx:if="{{loading}}"
+    class="loading"
+    type="spinner"
+    size="24"
+  >
+    加载中...
+  </van-loading>
+</view>

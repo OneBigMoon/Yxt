@@ -1,0 +1,46 @@
+<view class="login-page">
+  <view class="logo-section">
+    <image class="logo" src="/images/logo.jpg" mode="aspectFit"></image>
+    <text class="clinic-name">壹心堂</text>
+    <text class="slogan">传承中医文化，守护您的健康</text>
+  </view>
+
+  <view class="login-section">
+    <view class="agreement">
+      <van-checkbox value="{{agreed}}" bind:change="onAgreeChange" shape="square">
+        <text class="agreement-text">
+          我已阅读并同意
+          <text class="link" bindtap="showAgreement">《用户协议》</text>
+          和
+          <text class="link" bindtap="showPrivacy">《隐私政策》</text>
+        </text>
+      </van-checkbox>
+    </view>
+
+    <button class="phone-login-btn" open-type="getPhoneNumber" bindgetphonenumber="onGetPhoneNumber"
+      loading="{{loginLoading}}" disabled="{{!agreed}}">
+      微信快捷登录
+    </button>
+
+    <view class="profile-form" wx:if="{{showProfileForm}}">
+      <view class="form-item">
+        <text class="form-label">头像</text>
+        <button class="avatar-btn" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar">
+          <image class="avatar" src="{{avatarUrl || '/images/logo.jpg'}}" mode="aspectFill"></image>
+          <text class="avatar-tip">点击选择</text>
+        </button>
+      </view>
+      <view class="form-item">
+        <text class="form-label">昵称</text>
+        <input class="nickname-input" type="nickname" placeholder="点击使用微信昵称" bindchange="onNicknameChange" value="{{nickName}}" />
+      </view>
+      <button class="complete-btn" bindtap="onCompleteProfile" loading="{{loginLoading}}">
+        完成注册
+      </button>
+    </view>
+  </view>
+
+  <view class="footer">
+    <text class="footer-text">XX中医门诊 · 专业中医诊疗</text>
+  </view>
+</view>

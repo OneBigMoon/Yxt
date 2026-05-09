@@ -1,0 +1,28 @@
+<view class="article-detail-page">
+  <view class="article-header">
+    <text class="article-title">{{article.title}}</text>
+    <text class="article-time">{{article.created_at}}</text>
+  </view>
+
+  <view class="article-cover" wx:if="{{article.cover_image}}">
+    <van-image
+      width="100%"
+      height="400rpx"
+      fit="cover"
+      src="{{article.cover_image}}"
+    />
+  </view>
+
+  <view class="article-body">
+    <rich-text nodes="{{article.content}}"></rich-text>
+  </view>
+
+  <van-loading
+    wx:if="{{loading}}"
+    class="loading"
+    type="spinner"
+    size="24"
+  >
+    加载中...
+  </van-loading>
+</view>

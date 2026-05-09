@@ -1,0 +1,42 @@
+<view class="records-page">
+  <view class="section-title">今日核销记录</view>
+
+  <view class="record-list">
+    <view
+      class="record-item card"
+      wx:for="{{records}}"
+      wx:key="_id"
+    >
+      <view class="record-header">
+        <text class="record-services">{{item.service_names}}</text>
+        <text class="record-time">{{item.verified_at}}</text>
+      </view>
+      <view class="record-info">
+        <view class="record-row">
+          <van-icon name="user-o" size="14" color="#999" />
+          <text>{{item.patient_name || '未知用户'}}</text>
+        </view>
+        <view class="record-row">
+          <van-icon name="clock-o" size="14" color="#999" />
+          <text>{{item.start_time}} - {{item.end_time}}</text>
+        </view>
+      </view>
+    </view>
+
+    <van-empty
+      wx:if="{{records.length === 0 && !loading}}"
+      description="今日暂无核销记录"
+      image="search"
+    />
+  </view>
+
+  <!-- 加载状态 -->
+  <van-loading
+    wx:if="{{loading}}"
+    class="loading"
+    type="spinner"
+    size="24"
+  >
+    加载中...
+  </van-loading>
+</view>

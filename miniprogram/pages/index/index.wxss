@@ -1,0 +1,125 @@
+.index-page {
+  padding-bottom: 20rpx;
+}
+
+.notice-bar {
+  margin-bottom: 20rpx;
+}
+
+.clinic-info {
+  margin: 24rpx;
+}
+
+.clinic-header {
+  display: flex;
+  align-items: center;
+}
+
+.clinic-logo {
+  width: 100rpx;
+  height: 100rpx;
+  margin-right: 24rpx;
+  border-radius: 16rpx;
+}
+
+.clinic-detail {
+  flex: 1;
+}
+
+.clinic-name {
+  font-size: 36rpx;
+  font-weight: bold;
+  color: #333;
+  display: block;
+  margin-bottom: 8rpx;
+}
+
+.clinic-phone {
+  font-size: 28rpx;
+  color: #1989fa;
+  display: flex;
+  align-items: center;
+}
+
+.clinic-phone van-icon {
+  margin-right: 8rpx;
+}
+
+.section {
+  margin: 24rpx;
+}
+
+.section-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20rpx;
+}
+
+.title-text {
+  font-size: 32rpx;
+  font-weight: bold;
+  color: #333;
+}
+
+.title-more {
+  font-size: 24rpx;
+  color: #999;
+}
+
+.article-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+}
+
+.article-item {
+  display: flex;
+  padding: 20rpx;
+  margin: 0;
+}
+
+.article-cover {
+  flex-shrink: 0;
+  margin-right: 20rpx;
+  border-radius: 12rpx;
+  overflow: hidden;
+}
+
+.article-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.article-title {
+  font-size: 30rpx;
+  font-weight: bold;
+  color: #333;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.article-summary {
+  font-size: 24rpx;
+  color: #666;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin: 8rpx 0;
+}
+
+.article-time {
+  font-size: 22rpx;
+  color: #999;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  padding: 40rpx;
+}

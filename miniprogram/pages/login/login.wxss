@@ -1,0 +1,172 @@
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, #e8f4fd 0%, #ffffff 50%);
+}
+
+.logo-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 160rpx;
+  padding-bottom: 60rpx;
+}
+
+.logo {
+  width: 180rpx;
+  height: 180rpx;
+  margin-bottom: 30rpx;
+}
+
+.clinic-name {
+  font-size: 44rpx;
+  font-weight: bold;
+  color: #333;
+  margin-bottom: 16rpx;
+}
+
+.slogan {
+  font-size: 28rpx;
+  color: #666;
+}
+
+.login-section {
+  flex: 1;
+  padding: 40rpx 80rpx;
+}
+
+.profile-form {
+  background: #fff;
+  border-radius: 16rpx;
+  padding: 30rpx;
+  margin-bottom: 40rpx;
+  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.06);
+}
+
+.form-item {
+  display: flex;
+  align-items: center;
+  padding: 20rpx 0;
+  border-bottom: 1rpx solid #f0f0f0;
+}
+
+.form-item:last-child {
+  border-bottom: none;
+}
+
+.form-label {
+  font-size: 28rpx;
+  color: #333;
+  width: 100rpx;
+  flex-shrink: 0;
+}
+
+.avatar-btn {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  line-height: normal;
+}
+
+.avatar-btn::after {
+  border: none;
+}
+
+.avatar {
+  width: 80rpx;
+  height: 80rpx;
+  border-radius: 50%;
+  margin-right: 16rpx;
+}
+
+.avatar-tip {
+  font-size: 24rpx;
+  color: #999;
+}
+
+.nickname-input {
+  flex: 1;
+  font-size: 28rpx;
+  color: #333;
+  height: 60rpx;
+}
+
+.phone-login-btn {
+  width: 100%;
+  height: 88rpx;
+  line-height: 88rpx;
+  background: #1989fa;
+  color: #fff;
+  font-size: 32rpx;
+  border-radius: 44rpx;
+  border: none;
+  margin-bottom: 30rpx;
+}
+
+.phone-login-btn::after {
+  border: none;
+}
+
+.phone-login-btn[loading] {
+  opacity: 0.7;
+}
+
+.phone-login-btn[disabled] {
+  opacity: 0.5;
+}
+
+.complete-btn {
+  width: 100%;
+  height: 88rpx;
+  line-height: 88rpx;
+  background: #07c160;
+  color: #fff;
+  font-size: 32rpx;
+  border-radius: 44rpx;
+  border: none;
+  margin-top: 30rpx;
+}
+
+.complete-btn::after {
+  border: none;
+}
+
+.agreement {
+  margin-top: 20rpx;
+  display: flex;
+  justify-content: center;
+}
+
+.agreement .van-checkbox {
+  display: inline-flex !important;
+  align-items: center;
+}
+
+.agreement .van-checkbox__label {
+  white-space: nowrap !important;
+  line-height: 1.4;
+}
+
+.agreement-text {
+  font-size: 24rpx;
+  color: #999;
+}
+
+.link {
+  color: #1989fa;
+}
+
+.footer {
+  padding: 40rpx;
+  text-align: center;
+}
+
+.footer-text {
+  font-size: 24rpx;
+  color: #ccc;
+}

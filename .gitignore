@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.trae/
+.cloudbase/
+project.private.config.json
+server/uploads/
+*.log
+.DS_Store
