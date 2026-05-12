@@ -1,5 +1,5 @@
 .mine-page {
-  padding-bottom: 20rpx;
+  padding-bottom: 40rpx;
 }
 
 .user-section {
@@ -37,116 +37,72 @@
   color: rgba(255, 255, 255, 0.8);
 }
 
-.shop-section {
+.menu-section {
   margin: 24rpx;
+  padding: 0;
+  overflow: hidden;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  padding: 30rpx 24rpx;
+  border-bottom: 1rpx solid #f5f5f5;
+}
+
+.menu-item:last-child {
+  border-bottom: none;
+}
+
+.menu-text {
+  flex: 1;
+  font-size: 30rpx;
+  color: #333;
+  margin-left: 16rpx;
+}
+
+.shop-info {
   padding: 24rpx;
 }
 
-.shop-header {
+.shop-row {
   display: flex;
   align-items: center;
-  margin-bottom: 16rpx;
+  margin-bottom: 12rpx;
+}
+
+.shop-row:last-child {
+  margin-bottom: 0;
 }
 
 .shop-name {
-  font-size: 30rpx;
+  font-size: 28rpx;
   font-weight: bold;
   color: #333;
   margin-left: 12rpx;
 }
 
-.shop-address {
-  display: flex;
-  align-items: center;
-  padding: 16rpx;
-  background: #f5f5f5;
-  border-radius: 8rpx;
-}
-
-.address-text {
-  flex: 1;
-  font-size: 26rpx;
+.shop-addr {
+  font-size: 24rpx;
   color: #666;
-  margin: 0 12rpx;
+  margin-left: 12rpx;
 }
 
-.appointment-section {
-  margin: 24rpx;
+.logout-section {
+  margin: 40rpx 24rpx 0;
 }
 
-.section-title {
-  font-size: 32rpx;
-  font-weight: bold;
-  color: #333;
-  margin-bottom: 20rpx;
-}
-
-.appointment-list {
-  margin-top: 20rpx;
-}
-
-.appointment-item {
-  padding: 24rpx;
-  margin-bottom: 16rpx;
-}
-
-.apt-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16rpx;
-}
-
-.apt-services {
+.logout-btn {
+  width: 100%;
+  height: 80rpx;
+  line-height: 80rpx;
   font-size: 30rpx;
-  font-weight: bold;
-  color: #333;
-  flex: 1;
-}
-
-.status-pending {
-  color: #ff976a;
-  background: rgba(255, 151, 106, 0.1);
-  padding: 4rpx 16rpx;
-  border-radius: 8rpx;
-  font-size: 24rpx;
-}
-
-.status-completed {
-  color: #07c160;
-  background: rgba(7, 193, 96, 0.1);
-  padding: 4rpx 16rpx;
-  border-radius: 8rpx;
-  font-size: 24rpx;
-}
-
-.status-cancelled {
   color: #999;
-  background: rgba(153, 153, 153, 0.1);
-  padding: 4rpx 16rpx;
-  border-radius: 8rpx;
-  font-size: 24rpx;
+  background: #fff;
+  border: 1rpx solid #e5e5e5;
+  border-radius: 12rpx;
 }
 
-.apt-info {
-  display: flex;
-  flex-direction: column;
-  gap: 8rpx;
-}
-
-.apt-row {
-  display: flex;
-  align-items: center;
-  font-size: 26rpx;
-  color: #666;
-}
-
-.apt-row van-icon {
-  margin-right: 8rpx;
-}
-
-.loading {
-  display: flex;
-  justify-content: center;
-  padding: 40rpx;
+.logout-btn::after {
+  border: none;
 }

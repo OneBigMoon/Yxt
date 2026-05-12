@@ -1,28 +1,38 @@
 import app from './cloudbase'
 
-// 匿名登录（首次调用前需登录，否则云函数调不通）
 let loginPromise = null
 function ensureLogin() {
   if (!loginPromise) {
     const auth = app.auth()
     loginPromise = auth.hasLoginState()
       ? Promise.resolve()
-      : auth.signInAnonymously()
+      : auth.signInAnonymously().catch(err => {
+          console.error('匿名登录失败:', err)
+          loginPromise = null
+          throw new Error('云开发登录失败，请在云开发控制台开启匿名登录')
+        })
   }
   return loginPromise
 }
 
-// 统一调用封装
 async function callAdmin(action, data = {}) {
   await ensureLogin()
-  const res = await app.callFunction({
-    name: 'admin',
-    data: { action, data }
-  })
-  if (res.result.code !== 0) {
-    throw new Error(res.result.message || '请求失败')
+  try {
+    const res = await app.callFunction({
+      name: 'admin',
+      data: { action, data }
+    })
+    if (!res || !res.result) {
+      throw new Error('云函数返回异常')
+    }
+    if (res.result.code !== 0) {
+      throw new Error(res.result.message || '请求失败')
+    }
+    return res.result.data
+  } catch (err) {
+    console.error(`调用云函数失败 [${action}]:`, err)
+    throw err
   }
-  return res.result.data
 }
 
 // 预约相关API
@@ -42,6 +52,9 @@ export const customerApi = {
   },
   update(id, data) {
     return callAdmin('updateCustomer', { ...data, id })
+  },
+  delete(id) {
+    return callAdmin('deleteCustomer', { id })
   },
   toggleBlacklist(id, isBlacklisted) {
     return callAdmin('toggleBlacklist', { id, is_blacklisted: isBlacklisted })

@@ -37,7 +37,7 @@
         <el-card shadow="hover">
           <div class="summary-item">
             <div class="summary-label">总提成</div>
-            <div class="summary-value">¥{{ (summary.total / 100).toFixed(2) }}</div>
+            <div class="summary-value">¥{{ ((summary.total || 0) / 100).toFixed(2) }}</div>
           </div>
         </el-card>
       </el-col>
@@ -53,7 +53,7 @@
         <el-card shadow="hover">
           <div class="summary-item">
             <div class="summary-label">平均每单提成</div>
-            <div class="summary-value">¥{{ summary.count > 0 ? (summary.total / summary.count / 100).toFixed(2) : '0.00' }}</div>
+            <div class="summary-value">¥{{ summary.count > 0 ? ((summary.total || 0) / summary.count / 100).toFixed(2) : '0.00' }}</div>
           </div>
         </el-card>
       </el-col>
@@ -65,12 +65,12 @@
       <el-table-column prop="service_name" label="服务项目" width="150" />
       <el-table-column label="服务价格(元)" width="120">
         <template #default="{ row }">
-          {{ (row.service_price / 100).toFixed(2) }}
+          {{ ((row.service_price || 0) / 100).toFixed(2) }}
         </template>
       </el-table-column>
       <el-table-column label="提成金额(元)" width="120">
         <template #default="{ row }">
-          {{ (row.commission_amount / 100).toFixed(2) }}
+          {{ ((row.commission_amount || 0) / 100).toFixed(2) }}
         </template>
       </el-table-column>
       <el-table-column label="提成类型" width="100">
@@ -99,6 +99,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
 import { commissionApi, technicianApi } from '../api'
 
 const commissions = ref([])
@@ -125,6 +126,7 @@ async function loadTechnicians() {
     technicians.value = await technicianApi.getList()
   } catch (err) {
     console.error('加载技师列表失败:', err)
+    ElMessage.error('加载技师列表失败')
   }
 }
 
@@ -144,8 +146,10 @@ async function loadData() {
     const data = await commissionApi.getList(params)
     commissions.value = data.list || data
     total.value = data.total || commissions.value.length
+    loadSummary()
   } catch (err) {
     console.error('加载提成数据失败:', err)
+    ElMessage.error('加载提成数据失败')
   }
 }
 
@@ -158,9 +162,10 @@ async function loadSummary() {
     }
 
     const data = await commissionApi.getSummary(params)
-    summary.value = data || { total: 0, count: 0 }
+    summary.value = { total: (data && data.total) || 0, count: (data && data.count) || 0 }
   } catch (err) {
     console.error('加载统计失败:', err)
+    ElMessage.error('加载统计数据失败')
   }
 }
 </script>

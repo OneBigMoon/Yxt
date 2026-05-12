@@ -36,16 +36,20 @@
     </view>
   </view>
 
-  <!-- 二维码区域 -->
-  <view class="qr-section card" wx:if="{{appointment.status === 'pending' && appointment.qr_code}}">
-    <view class="qr-title">出示二维码核销</view>
+  <!-- 核销码区域 -->
+  <view class="qr-section card" wx:if="{{appointment.status === 'pending'}}">
+    <view class="qr-title">出示核销码</view>
     <image
+      wx:if="{{appointment.qr_code}}"
       class="qr-code"
       src="{{appointment.qr_code}}"
       mode="aspectFit"
       show-menu-by-longpress
     ></image>
-    <text class="qr-tip">请向技师出示此二维码</text>
+    <view wx:else class="qr-fallback">
+      <text class="qr-id">{{appointment.qr_scene || appointment._id}}</text>
+    </view>
+    <text class="qr-tip">请向技师出示此核销码</text>
   </view>
 
   <!-- 操作按钮 -->

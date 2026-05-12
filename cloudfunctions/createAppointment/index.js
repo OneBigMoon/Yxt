@@ -9,6 +9,17 @@ exports.main = async (event, context) => {
   const { services, date, start_time, end_time, total_duration } = event
 
   try {
+    // 参数校验
+    if (!services || !Array.isArray(services) || services.length === 0) {
+      return { code: -1, message: '请选择服务项目' }
+    }
+    if (!date || !start_time || !end_time) {
+      return { code: -1, message: '请选择预约日期和时段' }
+    }
+    if (!total_duration || total_duration <= 0) {
+      return { code: -1, message: '服务时长无效' }
+    }
+
     // 1. 检查用户是否被拉黑
     const userRes = await db.collection('users')
       .where({ openid: OPENID })
@@ -16,6 +27,13 @@ exports.main = async (event, context) => {
 
     if (userRes.data.length > 0 && userRes.data[0].is_blacklisted) {
       return { code: -1, message: '您已被限制预约，请联系门诊' }
+    }
+
+    const holidaysRes = await db.collection('holidays')
+      .where({ date: date })
+      .get()
+    if (holidaysRes.data.length > 0) {
+      return { code: -1, message: '该日期为停业日，不可预约' }
     }
 
     // 2. 再次验证时段是否可用（防并发）

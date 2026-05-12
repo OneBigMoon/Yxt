@@ -7,9 +7,14 @@ Page({
   },
 
   onLoad(options) {
-    if (options.id) {
-      this.loadArticle(options.id)
+    if (!options.id) {
+      wx.showToast({ title: '文章不存在', icon: 'none' })
+      setTimeout(() => {
+        wx.navigateBack()
+      }, 1500)
+      return
     }
+    this.loadArticle(options.id)
   },
 
   async loadArticle(id) {

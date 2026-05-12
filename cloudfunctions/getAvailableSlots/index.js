@@ -27,8 +27,10 @@ exports.main = async (event, context) => {
     }
 
     // 3. 检查是否是休班日
-    const isHoliday = config.holidays && config.holidays.some(h => h.date === date)
-    if (isHoliday) {
+    const holidaysRes = await db.collection('holidays')
+      .where({ date: date })
+      .get()
+    if (holidaysRes.data.length > 0) {
       return { code: 0, data: [] }
     }
 

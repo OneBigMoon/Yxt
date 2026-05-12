@@ -23,7 +23,7 @@ exports.main = async (event, context) => {
       case 'createService':
         return await createService(data)
       case 'updateService':
-        return await updateService(id, data)
+        return await updateService(data)
 
       // 技师管理
       case 'getTechnicians':
@@ -31,23 +31,25 @@ exports.main = async (event, context) => {
       case 'createTechnician':
         return await createTechnician(data)
       case 'updateTechnician':
-        return await updateTechnician(id, data)
+        return await updateTechnician(data)
       case 'toggleTechnicianStatus':
-        return await toggleTechnicianStatus(id, data)
+        return await toggleTechnicianStatus(data)
 
       // 客户管理
       case 'getCustomers':
         return await getCustomers(data)
       case 'updateCustomer':
-        return await updateCustomer(id, data)
+        return await updateCustomer(data)
+      case 'deleteCustomer':
+        return await deleteCustomer(data)
       case 'toggleBlacklist':
-        return await toggleBlacklist(id, data)
+        return await toggleBlacklist(data)
 
       // 预约管理
       case 'getAppointments':
         return await getAdminAppointments(data)
       case 'getAppointmentDetail':
-        return await getAppointmentDetail(id)
+        return await getAppointmentDetail(data)
 
       // 休息管理
       case 'getHolidays':
@@ -55,13 +57,13 @@ exports.main = async (event, context) => {
       case 'addHoliday':
         return await addHoliday(data)
       case 'deleteHoliday':
-        return await deleteHoliday(id)
+        return await deleteHoliday(data)
       case 'getTechDaysOff':
         return await getTechDaysOff()
       case 'addTechDayOff':
         return await addTechDayOff(data)
       case 'deleteTechDayOff':
-        return await deleteTechDayOff(id)
+        return await deleteTechDayOff(data)
 
       // 提成统计
       case 'getCommissions':
@@ -75,9 +77,9 @@ exports.main = async (event, context) => {
       case 'createArticle':
         return await createArticle(data)
       case 'updateArticle':
-        return await updateArticle(id, data)
+        return await updateArticle(data)
       case 'toggleArticleStatus':
-        return await toggleArticleStatus(id, data)
+        return await toggleArticleStatus(data)
 
       default:
         return { code: -1, message: '未知操作' }
@@ -161,12 +163,13 @@ async function createService(data) {
   return { code: 0, data: { _id: res._id } }
 }
 
-async function updateService(id, data) {
+async function updateService(data) {
+  const { id, ...updateData } = data
   await db.collection('services')
     .doc(id)
     .update({
       data: {
-        ...data,
+        ...updateData,
         updated_at: db.serverDate()
       }
     })
@@ -209,12 +212,13 @@ async function createTechnician(data) {
   return { code: 0, data: { _id: res._id } }
 }
 
-async function updateTechnician(id, data) {
+async function updateTechnician(data) {
+  const { id, ...updateData } = data
   await db.collection('technicians')
     .doc(id)
     .update({
       data: {
-        ...data,
+        ...updateData,
         updated_at: db.serverDate()
       }
     })
@@ -225,33 +229,44 @@ async function updateTechnician(id, data) {
 // ==================== 客户管理 ====================
 
 async function getCustomers(params) {
-  let query = db.collection('users')
+  const page = (params && params.page) || 1
+  const pageSize = (params && params.page_size) || 20
 
+  let conditions = null
   if (params && params.keyword) {
-    query = query.where(_.or([
+    conditions = _.or([
       { nick_name: db.RegExp({ regexp: params.keyword, options: 'i' }) },
       { phone: db.RegExp({ regexp: params.keyword, options: 'i' }) }
-    ]))
+    ])
   }
 
-  const countRes = await query.count()
+  let countQuery = db.collection('users')
+  let dataQuery = db.collection('users')
+
+  if (conditions) {
+    countQuery = countQuery.where(conditions)
+    dataQuery = dataQuery.where(conditions)
+  }
+
+  const countRes = await countQuery.count()
   const total = countRes.total
 
-  const res = await query
+  const res = await dataQuery
     .orderBy('created_at', 'desc')
-    .skip((params.page - 1) * params.page_size)
-    .limit(params.page_size)
+    .skip((page - 1) * pageSize)
+    .limit(pageSize)
     .get()
 
   return { code: 0, data: { list: res.data, total } }
 }
 
-async function updateCustomer(id, data) {
+async function updateCustomer(data) {
+  const { id, ...updateData } = data
   await db.collection('users')
     .doc(id)
     .update({
       data: {
-        ...data,
+        ...updateData,
         updated_at: db.serverDate()
       }
     })
@@ -259,61 +274,94 @@ async function updateCustomer(id, data) {
   return { code: 0, data: { message: '更新成功' } }
 }
 
+async function deleteCustomer(data) {
+  await db.collection('users')
+    .doc(data.id)
+    .remove()
+
+  return { code: 0, data: { message: '删除成功' } }
+}
+
 // ==================== 预约管理 ====================
 
 async function getAdminAppointments(params) {
-  let query = db.collection('appointments')
+  const page = (params && params.page) || 1
+  const pageSize = (params && params.page_size) || 20
 
+  let conditions = {}
   if (params) {
     if (params.status) {
-      query = query.where({ status: params.status })
+      conditions.status = params.status
     }
-    if (params.date) {
-      query = query.where({ date: params.date })
+    if (params.technician_id) {
+      conditions.technician_id = params.technician_id
     }
     if (params.start_date && params.end_date) {
-      query = query.where({
-        date: _.gte(params.start_date).and(_.lte(params.end_date))
-      })
+      conditions.date = _.gte(params.start_date).and(_.lte(params.end_date))
+    } else if (params.date) {
+      conditions.date = params.date
     }
   }
 
-  const countRes = await query.count()
+  let countQuery = db.collection('appointments')
+  let dataQuery = db.collection('appointments')
+
+  if (Object.keys(conditions).length > 0) {
+    countQuery = countQuery.where(conditions)
+    dataQuery = dataQuery.where(conditions)
+  }
+
+  const countRes = await countQuery.count()
   const total = countRes.total
 
-  const res = await query
+  const res = await dataQuery
     .orderBy('created_at', 'desc')
-    .skip((params.page - 1) * params.page_size)
-    .limit(params.page_size)
+    .skip((page - 1) * pageSize)
+    .limit(pageSize)
     .get()
 
-  // 获取关联数据
-  const appointments = await Promise.all(res.data.map(async (apt) => {
-    // 获取服务名称
-    const servicesRes = await db.collection('services')
-      .where({ _id: _.in(apt.services || []) })
-      .get()
+  // 过滤掉 _init 文档
+  const realAppointments = res.data.filter(a => !a._init)
 
-    const serviceNames = servicesRes.data.map(s => s.name).join('、')
+  // 获取关联数据
+  const appointments = await Promise.all(realAppointments.map(async (apt) => {
+    // 获取服务名称
+    let serviceNames = ''
+    if (apt.services && apt.services.length > 0) {
+      const servicesRes = await db.collection('services')
+        .where({ _id: _.in(apt.services) })
+        .get()
+      serviceNames = servicesRes.data.map(s => s.name).join('、')
+    }
 
     // 获取技师名称
     let technicianName = ''
     if (apt.technician_id) {
-      const techRes = await db.collection('technicians')
-        .doc(apt.technician_id)
-        .get()
-      if (techRes.data) {
-        technicianName = techRes.data.name
+      try {
+        const techRes = await db.collection('technicians')
+          .doc(apt.technician_id)
+          .get()
+        if (techRes.data) {
+          technicianName = techRes.data.name
+        }
+      } catch (e) {
+        console.error('获取技师信息失败:', e.message)
       }
     }
 
     // 获取患者信息
     let patientName = '未知用户'
-    const userRes = await db.collection('users')
-      .where({ openid: apt.patient_openid })
-      .get()
-    if (userRes.data.length > 0) {
-      patientName = userRes.data[0].nick_name || '未知用户'
+    if (apt.patient_openid) {
+      try {
+        const userRes = await db.collection('users')
+          .where({ openid: apt.patient_openid })
+          .get()
+        if (userRes.data.length > 0) {
+          patientName = userRes.data[0].nick_name || '未知用户'
+        }
+      } catch (e) {
+        console.error('获取用户信息失败:', e.message)
+      }
     }
 
     return {
@@ -363,8 +411,8 @@ async function addHoliday(data) {
   return { code: 0, data: { _id: res._id } }
 }
 
-async function deleteHoliday(id) {
-  await db.collection('holidays').doc(id).remove()
+async function deleteHoliday(data) {
+  await db.collection('holidays').doc(data.id).remove()
   return { code: 0, data: { message: '删除成功' } }
 }
 
@@ -377,11 +425,15 @@ async function getTechDaysOff() {
   const daysOff = await Promise.all(res.data.map(async (item) => {
     let technicianName = ''
     if (item.technician_id) {
-      const techRes = await db.collection('technicians')
-        .doc(item.technician_id)
-        .get()
-      if (techRes.data) {
-        technicianName = techRes.data.name
+      try {
+        const techRes = await db.collection('technicians')
+          .doc(item.technician_id)
+          .get()
+        if (techRes.data) {
+          technicianName = techRes.data.name
+        }
+      } catch (e) {
+        console.error('获取技师信息失败:', e.message)
       }
     }
     return { ...item, technician_name: technicianName }
@@ -413,51 +465,61 @@ async function addTechDayOff(data) {
   return { code: 0, data: { _id: res._id } }
 }
 
-async function deleteTechDayOff(id) {
-  await db.collection('tech_days_off').doc(id).remove()
+async function deleteTechDayOff(data) {
+  await db.collection('tech_days_off').doc(data.id).remove()
   return { code: 0, data: { message: '删除成功' } }
 }
 
 // ==================== 提成统计 ====================
 
 async function getCommissions(params) {
-  let query = db.collection('commission_records')
+  const page = (params && params.page) || 1
+  const pageSize = (params && params.page_size) || 20
 
+  let conditions = {}
   if (params) {
     if (params.technician_id) {
-      query = query.where({ technician_id: params.technician_id })
+      conditions.technician_id = params.technician_id
     }
     if (params.start_date && params.end_date) {
-      query = query.where({
-        date: _.gte(params.start_date).and(_.lte(params.end_date))
-      })
+      conditions.date = _.gte(params.start_date).and(_.lte(params.end_date))
     }
   }
 
-  const countRes = await query.count()
+  let countQuery = db.collection('commission_records')
+  let dataQuery = db.collection('commission_records')
+
+  if (Object.keys(conditions).length > 0) {
+    countQuery = countQuery.where(conditions)
+    dataQuery = dataQuery.where(conditions)
+  }
+
+  const countRes = await countQuery.count()
   const total = countRes.total
 
-  const res = await query
+  const res = await dataQuery
     .orderBy('created_at', 'desc')
-    .skip((params.page - 1) * params.page_size)
-    .limit(params.page_size)
+    .skip((page - 1) * pageSize)
+    .limit(pageSize)
     .get()
 
   return { code: 0, data: { list: res.data, total } }
 }
 
 async function getCommissionSummary(params) {
-  let query = db.collection('commission_records')
-
+  let conditions = {}
   if (params) {
     if (params.technician_id) {
-      query = query.where({ technician_id: params.technician_id })
+      conditions.technician_id = params.technician_id
     }
     if (params.start_date && params.end_date) {
-      query = query.where({
-        date: _.gte(params.start_date).and(_.lte(params.end_date))
-      })
+      conditions.date = _.gte(params.start_date).and(_.lte(params.end_date))
     }
+  }
+
+  let query = db.collection('commission_records')
+  if (Object.keys(conditions).length > 0) {
+    query = query.where(conditions)
   }
 
   const res = await query.get()
@@ -492,12 +554,13 @@ async function createArticle(data) {
   return { code: 0, data: { _id: res._id } }
 }
 
-async function updateArticle(id, data) {
+async function updateArticle(data) {
+  const { id, ...updateData } = data
   await db.collection('articles')
     .doc(id)
     .update({
       data: {
-        ...data,
+        ...updateData,
         updated_at: db.serverDate()
       }
     })
@@ -505,9 +568,9 @@ async function updateArticle(id, data) {
   return { code: 0, data: { message: '更新成功' } }
 }
 
-async function toggleArticleStatus(id, data) {
+async function toggleArticleStatus(data) {
   await db.collection('articles')
-    .doc(id)
+    .doc(data.id)
     .update({
       data: {
         status: data.status,
@@ -520,32 +583,45 @@ async function toggleArticleStatus(id, data) {
 
 // ==================== 新增功能 ====================
 
-async function getAppointmentDetail(id) {
-  const res = await db.collection('appointments').doc(id).get()
+async function getAppointmentDetail(data) {
+  const res = await db.collection('appointments').doc(data.id).get()
   const apt = res.data
 
   // 获取服务名称
-  const servicesRes = await db.collection('services')
-    .where({ _id: _.in(apt.services || []) })
-    .get()
-  const serviceNames = servicesRes.data.map(s => s.name).join('、')
+  let serviceNames = ''
+  if (apt.services && apt.services.length > 0) {
+    const servicesRes = await db.collection('services')
+      .where({ _id: _.in(apt.services) })
+      .get()
+    serviceNames = servicesRes.data.map(s => s.name).join('、')
+  }
 
   // 获取技师名称
   let technicianName = ''
   if (apt.technician_id) {
-    const techRes = await db.collection('technicians').doc(apt.technician_id).get()
-    if (techRes.data) technicianName = techRes.data.name
+    try {
+      const techRes = await db.collection('technicians').doc(apt.technician_id).get()
+      if (techRes.data) technicianName = techRes.data.name
+    } catch (e) {
+      console.error('获取技师信息失败:', e.message)
+    }
   }
 
   // 获取患者信息
   let patientName = '未知用户'
   let patientPhone = ''
-  const userRes = await db.collection('users')
-    .where({ openid: apt.patient_openid })
-    .get()
-  if (userRes.data.length > 0) {
-    patientName = userRes.data[0].nick_name || '未知用户'
-    patientPhone = userRes.data[0].phone || ''
+  if (apt.patient_openid) {
+    try {
+      const userRes = await db.collection('users')
+        .where({ openid: apt.patient_openid })
+        .get()
+      if (userRes.data.length > 0) {
+        patientName = userRes.data[0].nick_name || '未知用户'
+        patientPhone = userRes.data[0].phone || ''
+      }
+    } catch (e) {
+      console.error('获取用户信息失败:', e.message)
+    }
   }
 
   return {
@@ -560,9 +636,9 @@ async function getAppointmentDetail(id) {
   }
 }
 
-async function toggleBlacklist(id, data) {
+async function toggleBlacklist(data) {
   await db.collection('users')
-    .doc(id)
+    .doc(data.id)
     .update({
       data: {
         is_blacklisted: data.is_blacklisted,
@@ -573,9 +649,9 @@ async function toggleBlacklist(id, data) {
   return { code: 0, data: { message: data.is_blacklisted ? '已加入黑名单' : '已取消黑名单' } }
 }
 
-async function toggleTechnicianStatus(id, data) {
+async function toggleTechnicianStatus(data) {
   await db.collection('technicians')
-    .doc(id)
+    .doc(data.id)
     .update({
       data: {
         status: data.status,

@@ -1,6 +1,6 @@
 const app = getApp()
 
-export const fullLogin = async (userInfo, phoneCode) => {
+const fullLogin = async (userInfo, phoneCode) => {
   try {
     const result = await wx.cloud.callFunction({
       name: 'login',
@@ -26,7 +26,7 @@ export const fullLogin = async (userInfo, phoneCode) => {
   }
 }
 
-export const updateProfile = async (nickName, avatarUrl) => {
+const updateProfile = async (nickName, avatarUrl) => {
   const result = await wx.cloud.callFunction({
     name: 'login',
     data: {
@@ -47,7 +47,7 @@ export const updateProfile = async (nickName, avatarUrl) => {
   }
 }
 
-export const checkAuth = () => {
+const checkAuth = () => {
   return new Promise((resolve) => {
     const userInfo = wx.getStorageSync('userInfo')
     if (userInfo) {
@@ -61,14 +61,14 @@ export const checkAuth = () => {
   })
 }
 
-export const logout = () => {
+const logout = () => {
   app.globalData.userInfo = null
   app.globalData.role = null
   app.globalData.openid = null
   wx.removeStorageSync('userInfo')
 }
 
-export default {
+module.exports = {
   fullLogin,
   updateProfile,
   checkAuth,

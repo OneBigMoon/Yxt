@@ -9,19 +9,6 @@
     />
   </view>
 
-  <!-- 门诊信息 -->
-  <view class="clinic-info card">
-    <view class="clinic-header">
-      <image class="clinic-logo" src="/images/logo.jpg" mode="aspectFit"></image>
-      <view class="clinic-detail">
-        <text class="clinic-name">{{clinicInfo.name || '壹心堂'}}</text>
-        <text class="clinic-phone" bindtap="callPhone">
-          <van-icon name="phone" /> {{clinicInfo.phone || '010-12345678'}}
-        </text>
-      </view>
-    </view>
-  </view>
-
   <!-- 健康小知识 -->
   <view class="section">
     <view class="section-title">
@@ -37,16 +24,13 @@
         bindtap="viewArticle"
         data-id="{{item._id}}"
       >
-        <van-image
+        <image
           class="article-cover"
-          width="200rpx"
-          height="150rpx"
-          fit="cover"
-          src="{{item.cover_image}}"
-          use-loading-slot
-        >
-          <van-loading type="spinner" size="20" slot="loading" />
-        </van-image>
+          src="{{item.cover_image || '/images/default-article.png'}}"
+          mode="aspectFill"
+          binderror="onCoverError"
+          data-index="{{index}}"
+        />
         <view class="article-content">
           <text class="article-title">{{item.title}}</text>
           <text class="article-summary">{{item.summary}}</text>

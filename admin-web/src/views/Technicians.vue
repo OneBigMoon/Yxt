@@ -62,7 +62,7 @@
         <el-table-column prop="name" label="服务项目" />
         <el-table-column prop="default_commission" label="默认提成(元)" width="120">
           <template #default="{ row }">
-            {{ (row.default_commission / 100).toFixed(2) }}
+            {{ ((row.default_commission || 0) / 100).toFixed(2) }}
           </template>
         </el-table-column>
         <el-table-column label="个人提成(元)" width="150">
@@ -89,7 +89,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { technicianApi, serviceApi } from '../api'
 
 const technicians = ref([])
@@ -116,6 +116,7 @@ async function loadData() {
     technicians.value = await technicianApi.getList()
   } catch (err) {
     console.error('加载技师数据失败:', err)
+    ElMessage.error('加载技师数据失败')
   }
 }
 
@@ -124,6 +125,7 @@ async function loadServices() {
     services.value = await serviceApi.getList()
   } catch (err) {
     console.error('加载服务数据失败:', err)
+    ElMessage.error('加载服务数据失败')
   }
 }
 
@@ -191,7 +193,7 @@ function editCommission(row) {
   const data = {}
   services.value.forEach(service => {
     const custom = row.custom_commissions && row.custom_commissions[service._id]
-    data[service._id] = custom ? custom / 100 : service.default_commission / 100
+    data[service._id] = custom != null ? custom / 100 : (service.default_commission || 0) / 100
   })
   commissionData.value = data
 
@@ -202,7 +204,7 @@ async function saveCommission() {
   try {
     const custom_commissions = {}
     Object.keys(commissionData.value).forEach(key => {
-      custom_commissions[key] = Math.round(commissionData.value[key] * 100)
+      custom_commissions[key] = Math.round((commissionData.value[key] || 0) * 100)
     })
 
     await technicianApi.update(currentId.value, { custom_commissions })

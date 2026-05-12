@@ -7,7 +7,8 @@
     "pages/appointment-detail/appointment-detail",
     "pages/article-detail/article-detail",
     "pages/tech-home/tech-home",
-    "pages/tech-records/tech-records"
+    "pages/tech-records/tech-records",
+    "pages/my-appointments/my-appointments"
   ],
   "window": {
     "navigationBarBackgroundColor": "#ffffff",

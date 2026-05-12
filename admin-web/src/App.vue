@@ -24,29 +24,29 @@
           <el-icon><User /></el-icon>
           <span>客户管理</span>
         </el-menu-item>
-        <el-menu-item index="/technicians">
-          <el-icon><UserFilled /></el-icon>
-          <span>技师管理</span>
+        <el-menu-item index="/articles">
+          <el-icon><Document /></el-icon>
+          <span>健康小知识</span>
         </el-menu-item>
         <el-menu-item index="/services">
           <el-icon><Goods /></el-icon>
           <span>服务管理</span>
         </el-menu-item>
-        <el-menu-item index="/business-config">
-          <el-icon><Setting /></el-icon>
-          <span>营业设置</span>
+        <el-menu-item index="/technicians">
+          <el-icon><UserFilled /></el-icon>
+          <span>技师管理</span>
         </el-menu-item>
         <el-menu-item index="/rest-management">
           <el-icon><Calendar /></el-icon>
           <span>休息管理</span>
         </el-menu-item>
+        <el-menu-item index="/business-config">
+          <el-icon><Setting /></el-icon>
+          <span>营业设置</span>
+        </el-menu-item>
         <el-menu-item index="/commissions">
           <el-icon><Money /></el-icon>
           <span>提成统计</span>
-        </el-menu-item>
-        <el-menu-item index="/articles">
-          <el-icon><Document /></el-icon>
-          <span>健康小知识</span>
         </el-menu-item>
       </el-menu>
     </el-aside>
@@ -68,7 +68,7 @@
             </span>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item>退出登录</el-dropdown-item>
+                <el-dropdown-item @click="handleLogout">退出登录</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -84,9 +84,14 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus'
 
 const currentRoute = useRoute()
 const activeMenu = computed(() => currentRoute.path)
+
+function handleLogout() {
+  ElMessage.info('管理后台无需登录')
+}
 </script>
 
 <style scoped>

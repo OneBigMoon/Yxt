@@ -8,9 +8,14 @@ Page({
   },
 
   onLoad(options) {
-    if (options.id) {
-      this.loadAppointment(options.id)
+    if (!options.id) {
+      wx.showToast({ title: '预约不存在', icon: 'none' })
+      setTimeout(() => {
+        wx.navigateBack()
+      }, 1500)
+      return
     }
+    this.loadAppointment(options.id)
   },
 
   async loadAppointment(id) {

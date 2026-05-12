@@ -18,8 +18,8 @@ Page({
     })
   },
 
-  onAgreeChange(e) {
-    this.setData({ agreed: e.detail })
+  onAgreementTap() {
+    this.setData({ agreed: !this.data.agreed })
   },
 
   onChooseAvatar(e) {

@@ -22,21 +22,22 @@ exports.main = async (event, context) => {
     }
 
     // 构建查询条件
-    let query = {}
+    let conditions = {}
 
     if (date) {
-      query.date = date
+      conditions.date = date
     }
 
     if (status) {
-      query.status = status
+      conditions.status = status
     }
 
     // 查询预约
-    const res = await db.collection('appointments')
-      .where(query)
-      .orderBy('start_time', 'asc')
-      .get()
+    let query = db.collection('appointments')
+    if (Object.keys(conditions).length > 0) {
+      query = query.where(conditions)
+    }
+    const res = await query.orderBy('start_time', 'asc').get()
 
     // 获取服务名称和患者信息
     const appointments = await Promise.all(res.data.map(async (apt) => {

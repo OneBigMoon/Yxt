@@ -6,16 +6,28 @@
     </div>
 
     <el-table :data="services" border class="table-container">
+      <el-table-column label="图片" width="80">
+        <template #default="{ row }">
+          <el-image
+            v-if="row.imageUrl || row.image_url"
+            :src="row.imageUrl || row.image_url"
+            :preview-src-list="[row.imageUrl || row.image_url]"
+            fit="cover"
+            style="width: 50px; height: 50px; border-radius: 4px;"
+          />
+          <span v-else style="color: #ccc; font-size: 12px;">无图</span>
+        </template>
+      </el-table-column>
       <el-table-column prop="name" label="服务名称" width="150" />
       <el-table-column prop="duration" label="时长(分钟)" width="120" />
       <el-table-column label="价格(元)" width="120">
         <template #default="{ row }">
-          {{ (row.price / 100).toFixed(2) }}
+          {{ ((row.price || 0) / 100).toFixed(2) }}
         </template>
       </el-table-column>
       <el-table-column label="默认提成(元)" width="120">
         <template #default="{ row }">
-          {{ (row.default_commission / 100).toFixed(2) }}
+          {{ ((row.default_commission || 0) / 100).toFixed(2) }}
         </template>
       </el-table-column>
       <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
@@ -44,6 +56,21 @@
     <!-- 添加/编辑弹窗 -->
     <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑服务' : '添加服务'" width="600px">
       <el-form :model="formData" label-width="120px">
+        <el-form-item label="服务图片">
+          <el-upload
+            :show-file-list="false"
+            :http-request="handleImageUpload"
+            accept="image/*"
+          >
+            <el-image
+              v-if="formData.image_url"
+              :src="formData.image_url"
+              fit="cover"
+              style="width: 100px; height: 100px; border-radius: 4px; border: 1px solid #ddd;"
+            />
+            <el-button v-else size="small">上传图片</el-button>
+          </el-upload>
+        </el-form-item>
         <el-form-item label="服务名称" required>
           <el-input v-model="formData.name" placeholder="请输入服务名称" />
         </el-form-item>
@@ -77,7 +104,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { serviceApi } from '../api'
+import { serviceApi, uploadFile } from '../api'
 
 const services = ref([])
 const dialogVisible = ref(false)
@@ -90,8 +117,19 @@ const formData = ref({
   price: 0,
   default_commission: 0,
   description: '',
-  sort_order: 0
+  sort_order: 0,
+  image_url: ''
 })
+
+async function handleImageUpload(options) {
+  try {
+    const url = await uploadFile(options.file)
+    formData.value.image_url = url
+    ElMessage.success('图片上传成功')
+  } catch (err) {
+    ElMessage.error('图片上传失败')
+  }
+}
 
 onMounted(() => {
   loadData()
@@ -102,6 +140,7 @@ async function loadData() {
     services.value = await serviceApi.getList()
   } catch (err) {
     console.error('加载服务数据失败:', err)
+    ElMessage.error('加载服务数据失败')
   }
 }
 
@@ -113,7 +152,8 @@ function showAddDialog() {
     price: 0,
     default_commission: 0,
     description: '',
-    sort_order: 0
+    sort_order: 0,
+    image_url: ''
   }
   dialogVisible.value = true
 }
@@ -124,10 +164,11 @@ function editService(row) {
   formData.value = {
     name: row.name,
     duration: row.duration,
-    price: row.price / 100,
-    default_commission: row.default_commission / 100,
+    price: (row.price || 0) / 100,
+    default_commission: (row.default_commission || 0) / 100,
     description: row.description || '',
-    sort_order: row.sort_order || 0
+    sort_order: row.sort_order || 0,
+    image_url: row.imageUrl || row.image_url || ''
   }
   dialogVisible.value = true
 }
@@ -141,8 +182,8 @@ async function saveService() {
   try {
     const data = {
       ...formData.value,
-      price: Math.round(formData.value.price * 100),
-      default_commission: Math.round(formData.value.default_commission * 100)
+      price: Math.round((formData.value.price || 0) * 100),
+      default_commission: Math.round((formData.value.default_commission || 0) * 100)
     }
 
     if (isEdit.value) {

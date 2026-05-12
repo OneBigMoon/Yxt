@@ -1,140 +1,158 @@
 <template>
   <div class="dashboard">
-    <div class="stats-cards">
-      <el-row :gutter="20">
-        <el-col :span="6">
-          <el-card shadow="hover" class="stat-card">
-            <div class="stat-content">
-              <div class="stat-icon pending">
-                <el-icon><Clock /></el-icon>
-              </div>
-              <div class="stat-info">
-                <div class="stat-value">{{ stats.pending }}</div>
-                <div class="stat-label">今日待核销</div>
-              </div>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :span="6">
-          <el-card shadow="hover" class="stat-card">
-            <div class="stat-content">
-              <div class="stat-icon completed">
-                <el-icon><CircleCheck /></el-icon>
-              </div>
-              <div class="stat-info">
-                <div class="stat-value">{{ stats.completed }}</div>
-                <div class="stat-label">今日已核销</div>
-              </div>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :span="6">
-          <el-card shadow="hover" class="stat-card">
-            <div class="stat-content">
-              <div class="stat-icon total">
-                <el-icon><Calendar /></el-icon>
-              </div>
-              <div class="stat-info">
-                <div class="stat-value">{{ stats.total }}</div>
-                <div class="stat-label">今日总预约</div>
-              </div>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :span="6">
-          <el-card shadow="hover" class="stat-card">
-            <div class="stat-content">
-              <div class="stat-icon customers">
-                <el-icon><User /></el-icon>
-              </div>
-              <div class="stat-info">
-                <div class="stat-value">{{ stats.customers }}</div>
-                <div class="stat-label">总客户数</div>
-              </div>
-            </div>
-          </el-card>
-        </el-col>
-      </el-row>
-    </div>
+    <!-- 今日营业状态 -->
+    <el-card shadow="hover" class="status-card">
+      <div class="status-header">
+        <div class="status-info">
+          <el-icon :size="20" :color="isClosed ? '#F56C6C' : '#67C23A'">
+            <component :is="isClosed ? 'CircleClose' : 'CircleCheck'" />
+          </el-icon>
+          <span class="status-text">今日营业状态：</span>
+          <el-tag :type="isClosed ? 'danger' : 'success'" size="large">
+            {{ isClosed ? '已停业' : '营业中' }}
+          </el-tag>
+          <span v-if="closureReason" class="closure-reason">（{{ closureReason }}）</span>
+        </div>
+        <el-button type="primary" @click="showClosureDialog">设置停业</el-button>
+      </div>
+    </el-card>
 
-    <el-row :gutter="20" class="chart-row">
-      <el-col :span="16">
-        <el-card shadow="hover">
-          <template #header>
-            <div class="card-header">
-              <span>本周预约趋势</span>
-            </div>
+    <!-- 今日预约列表 -->
+    <el-card shadow="hover" style="margin-top: 20px;">
+      <template #header>
+        <div class="card-header">
+          <span>今日预约列表</span>
+          <el-tag type="info" size="small">共 {{ todayAppointments.length }} 条</el-tag>
+        </div>
+      </template>
+      <el-table :data="todayAppointments" border stripe>
+        <el-table-column prop="start_time" label="时间" width="100">
+          <template #default="{ row }">
+            {{ row.start_time }}-{{ row.end_time }}
           </template>
-          <div class="chart-placeholder">
-            <el-empty description="图表功能开发中" />
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :span="8">
-        <el-card shadow="hover">
-          <template #header>
-            <div class="card-header">
-              <span>今日预约列表</span>
-            </div>
+        </el-table-column>
+        <el-table-column prop="service_names" label="服务项目" min-width="150" />
+        <el-table-column prop="patient_name" label="客户" width="120" />
+        <el-table-column prop="technician_name" label="技师" width="120">
+          <template #default="{ row }">
+            {{ row.technician_name || '待分配' }}
           </template>
-          <div class="today-list">
-            <div
-              v-for="item in todayAppointments"
-              :key="item._id"
-              class="today-item"
-            >
-              <div class="item-info">
-                <div class="item-time">{{ item.start_time }}</div>
-                <div class="item-service">{{ item.service_names }}</div>
-              </div>
-              <el-tag :type="item.status === 'pending' ? 'warning' : 'success'" size="small">
-                {{ item.status === 'pending' ? '待核销' : '已核销' }}
-              </el-tag>
-            </div>
-            <el-empty v-if="todayAppointments.length === 0" description="今日暂无预约" />
-          </div>
-        </el-card>
-      </el-col>
-    </el-row>
+        </el-table-column>
+        <el-table-column label="状态" width="100">
+          <template #default="{ row }">
+            <el-tag :type="row.status === 'pending' ? 'warning' : row.status === 'completed' ? 'success' : 'info'" size="small">
+              {{ row.status === 'pending' ? '待核销' : row.status === 'completed' ? '已核销' : '已取消' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="todayAppointments.length === 0" description="今日暂无预约" />
+    </el-card>
+
+    <!-- 设置停业弹窗 -->
+    <el-dialog v-model="closureDialogVisible" title="设置停业" width="500px">
+      <el-form :model="closureForm" label-width="80px">
+        <el-form-item label="停业日期" required>
+          <el-date-picker
+            v-model="closureForm.dates"
+            type="dates"
+            placeholder="选择一个或多个日期"
+            value-format="YYYY-MM-DD"
+            style="width: 100%;"
+          />
+        </el-form-item>
+        <el-form-item label="停业原因">
+          <el-input v-model="closureForm.reason" placeholder="如：节假日休息、设备维护" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="closureDialogVisible = false">取消</el-button>
+          <el-button type="primary" @click="saveClosure">确定停业</el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { appointmentApi } from '../api'
-
-const stats = ref({
-  pending: 0,
-  completed: 0,
-  total: 0,
-  customers: 0
-})
+import { ref, computed, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
+import { appointmentApi, restApi } from '../api'
 
 const todayAppointments = ref([])
+const todayHoliday = ref(null)
+const closureDialogVisible = ref(false)
+const closureForm = ref({ dates: [], reason: '' })
+
+const isClosed = computed(() => !!todayHoliday.value)
+const closureReason = computed(() => todayHoliday.value?.reason || '')
 
 onMounted(() => {
-  loadDashboardData()
+  loadData()
 })
 
-async function loadDashboardData() {
+async function loadData() {
+  await Promise.all([loadTodayAppointments(), loadTodayStatus()])
+}
+
+async function loadTodayAppointments() {
   try {
     const today = formatDate(new Date())
-    const appointments = await appointmentApi.getList({ date: today })
-
-    const pending = appointments.filter(a => a.status === 'pending').length
-    const completed = appointments.filter(a => a.status === 'completed').length
-
-    stats.value = {
-      pending,
-      completed,
-      total: appointments.length,
-      customers: 0 // TODO: 从API获取
-    }
-
-    todayAppointments.value = appointments.slice(0, 10)
+    const result = await appointmentApi.getList({ date: today })
+    todayAppointments.value = result.list || result || []
   } catch (err) {
-    console.error('加载仪表盘数据失败:', err)
+    console.error('加载预约数据失败:', err)
+    ElMessage.error('加载预约数据失败')
   }
+}
+
+async function loadTodayStatus() {
+  try {
+    const today = formatDate(new Date())
+    const holidays = await restApi.getHolidays({ type: 'closure' })
+    todayHoliday.value = (holidays || []).find(h => h.date === today) || null
+  } catch (err) {
+    console.error('加载营业状态失败:', err)
+  }
+}
+
+function showClosureDialog() {
+  closureForm.value = { dates: [], reason: '' }
+  closureDialogVisible.value = true
+}
+
+async function saveClosure() {
+  const { dates, reason } = closureForm.value
+
+  if (!dates || dates.length === 0) {
+    ElMessage.warning('请选择停业日期')
+    return
+  }
+
+  let successCount = 0
+  let skipCount = 0
+
+  for (const date of dates) {
+    try {
+      await restApi.addHoliday({ date, type: 'closure', reason: reason || '' })
+      successCount++
+    } catch (err) {
+      if (err.message && err.message.includes('已存在')) {
+        skipCount++
+      } else {
+        console.error(`设置 ${date} 停业失败:`, err)
+      }
+    }
+  }
+
+  closureDialogVisible.value = false
+
+  let msg = `成功设置 ${successCount} 天停业`
+  if (skipCount > 0) msg += `，${skipCount} 天已有记录跳过`
+  ElMessage.success(msg)
+
+  loadTodayStatus()
 }
 
 function formatDate(date) {
@@ -150,114 +168,35 @@ function formatDate(date) {
   padding: 0;
 }
 
-.stats-cards {
-  margin-bottom: 20px;
+.status-card {
+  background: linear-gradient(135deg, #f5f7fa 0%, #fff 100%);
 }
 
-.stat-card {
-  cursor: pointer;
-}
-
-.stat-content {
+.status-header {
   display: flex;
+  justify-content: space-between;
   align-items: center;
 }
 
-.stat-icon {
-  width: 60px;
-  height: 60px;
-  border-radius: 12px;
+.status-info {
   display: flex;
   align-items: center;
-  justify-content: center;
-  margin-right: 16px;
+  gap: 8px;
 }
 
-.stat-icon .el-icon {
-  font-size: 28px;
-  color: #fff;
-}
-
-.stat-icon.pending {
-  background: linear-gradient(135deg, #f5a623 0%, #f7c948 100%);
-}
-
-.stat-icon.completed {
-  background: linear-gradient(135deg, #67c23a 0%, #85ce61 100%);
-}
-
-.stat-icon.total {
-  background: linear-gradient(135deg, #409eff 0%, #66b1ff 100%);
-}
-
-.stat-icon.customers {
-  background: linear-gradient(135deg, #909399 0%, #b1b3b8 100%);
-}
-
-.stat-info {
-  flex: 1;
-}
-
-.stat-value {
-  font-size: 32px;
-  font-weight: bold;
+.status-text {
+  font-size: 16px;
   color: #333;
-  line-height: 1;
-  margin-bottom: 8px;
 }
 
-.stat-label {
+.closure-reason {
   font-size: 14px;
   color: #909399;
-}
-
-.chart-row {
-  margin-bottom: 20px;
 }
 
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-}
-
-.chart-placeholder {
-  height: 300px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.today-list {
-  max-height: 400px;
-  overflow-y: auto;
-}
-
-.today-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 0;
-  border-bottom: 1px solid #f0f0f0;
-}
-
-.today-item:last-child {
-  border-bottom: none;
-}
-
-.item-info {
-  flex: 1;
-}
-
-.item-time {
-  font-size: 16px;
-  font-weight: 500;
-  color: #333;
-  margin-bottom: 4px;
-}
-
-.item-service {
-  font-size: 14px;
-  color: #909399;
 }
 </style>

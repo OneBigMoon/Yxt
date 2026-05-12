@@ -53,7 +53,11 @@
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="created_at" label="创建时间" width="180" />
+      <el-table-column label="创建时间" width="180">
+        <template #default="{ row }">
+          {{ formatTime(row.created_at) }}
+        </template>
+      </el-table-column>
       <el-table-column label="操作" width="120" fixed="right">
         <template #default="{ row }">
           <el-button type="primary" link @click="viewDetail(row)">详情</el-button>
@@ -87,8 +91,8 @@
             {{ getStatusText(currentAppointment.status) }}
           </el-tag>
         </el-descriptions-item>
-        <el-descriptions-item label="核销时间">{{ currentAppointment.verified_at || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="创建时间">{{ currentAppointment.created_at }}</el-descriptions-item>
+        <el-descriptions-item label="核销时间">{{ formatTime(currentAppointment.verified_at) }}</el-descriptions-item>
+        <el-descriptions-item label="创建时间">{{ formatTime(currentAppointment.created_at) }}</el-descriptions-item>
       </el-descriptions>
     </el-dialog>
   </div>
@@ -96,6 +100,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
 import { appointmentApi, technicianApi } from '../api'
 
 const appointments = ref([])
@@ -122,6 +127,7 @@ async function loadTechnicians() {
     technicians.value = await technicianApi.getList()
   } catch (err) {
     console.error('加载技师列表失败:', err)
+    ElMessage.error('加载技师列表失败')
   }
 }
 
@@ -143,12 +149,21 @@ async function loadData() {
     total.value = data.total || appointments.value.length
   } catch (err) {
     console.error('加载预约数据失败:', err)
+    ElMessage.error('加载预约数据失败：' + (err.message || '请检查云开发匿名登录是否已开启'))
   }
 }
 
 function viewDetail(row) {
   currentAppointment.value = row
   detailVisible.value = true
+}
+
+function formatTime(val) {
+  if (!val) return '-'
+  const d = new Date(val)
+  if (isNaN(d.getTime())) return val
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 function getStatusType(status) {

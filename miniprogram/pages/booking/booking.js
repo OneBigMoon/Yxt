@@ -1,4 +1,4 @@
-const { getServices, getAvailableSlots, createAppointment, getConfig } = require('../../utils/api')
+const { getServices, getAvailableSlots, createAppointment, getConfig, getHolidays } = require('../../utils/api')
 
 Page({
   data: {
@@ -14,12 +14,46 @@ Page({
     slotsLoading: false,
     selectedSlot: null,
     bookingLoading: false,
-    showSuccess: false
+    showSuccess: false,
+    disabledDates: [],
+    restDays: [],
+    holidays: [],
+    calendarFormatter: null
   },
 
   onLoad() {
-    this.loadServices()
-    this.loadConfig()
+    const { checkAuth } = require('../../utils/auth')
+    checkAuth().then((userInfo) => {
+      if (!userInfo) {
+        wx.redirectTo({ url: '/pages/login/login' })
+        return
+      }
+
+      this.loadServices()
+      this.loadConfig()
+
+      this.setData({
+        calendarFormatter: (day) => {
+          const date = new Date(day.date)
+          const dayOfWeek = date.getDay() || 7
+
+          if (this.data.restDays.includes(dayOfWeek)) {
+            day.type = 'disabled'
+            day.bottomInfo = '休息'
+          }
+
+          const dateStr = this.formatDate(date)
+          const holidays = this.data.holidays || []
+          const holiday = holidays.find(h => h.date === dateStr)
+          if (holiday) {
+            day.type = 'disabled'
+            day.bottomInfo = '停业'
+          }
+
+          return day
+        }
+      })
+    })
   },
 
   async loadServices() {
@@ -37,52 +71,115 @@ Page({
   async loadConfig() {
     try {
       const config = await getConfig()
-      if (config.max_advance_days) {
-        this.setData({
-          maxDate: Date.now() + config.max_advance_days * 24 * 60 * 60 * 1000
-        })
+      const holidaysData = await getHolidays({ type: 'closure' })
+
+      const maxAdvanceDays = config.max_advance_days || 14
+      const maxDate = Date.now() + maxAdvanceDays * 24 * 60 * 60 * 1000
+
+      const restDays = []
+      if (config.schedule) {
+        for (let i = 1; i <= 7; i++) {
+          if (!config.schedule[i] || config.schedule[i].length === 0) {
+            restDays.push(i)
+          }
+        }
       }
+
+      const disabledDates = []
+      const now = new Date()
+      for (let d = 0; d <= maxAdvanceDays; d++) {
+        const checkDate = new Date(now.getTime() + d * 24 * 60 * 60 * 1000)
+        const dayOfWeek = checkDate.getDay() || 7
+        if (restDays.includes(dayOfWeek)) {
+          disabledDates.push(checkDate.getTime())
+        }
+      }
+
+      const holidays = holidaysData || []
+      for (const h of holidays) {
+        const hDate = new Date(h.date)
+        hDate.setHours(0, 0, 0, 0)
+        disabledDates.push(hDate.getTime())
+      }
+
+      this.setData({
+        maxDate,
+        restDays,
+        disabledDates,
+        holidays
+      })
     } catch (err) {
       console.error('获取配置失败:', err)
     }
   },
 
-  // 切换服务选择
+  onCalendarDayClick(e) {
+    const date = new Date(e.detail)
+    const dayOfWeek = date.getDay() || 7
+
+    if (this.data.restDays.includes(dayOfWeek)) {
+      const dayNames = ['', '一', '二', '三', '四', '五', '六', '日']
+      wx.showToast({ title: `周${dayNames[dayOfWeek]}为休息日`, icon: 'none' })
+      return
+    }
+
+    const dateStr = this.formatDate(date)
+    const holidays = this.data.holidays || []
+    const holiday = holidays.find(h => h.date === dateStr)
+    if (holiday) {
+      wx.showToast({ title: holiday.reason || '当日停业', icon: 'none' })
+      return
+    }
+
+    this.setData({
+      selectedDate: dateStr,
+      showCalendar: false
+    })
+  },
+
+  formatDate(date) {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  },
+
   toggleService(e) {
     const index = e.currentTarget.dataset.index
-    const services = this.data.services
-    services[index].selected = !services[index].selected
+    const services = this.data.services.map((s, i) =>
+      i === index ? { ...s, selected: !s.selected } : s
+    )
 
     const selectedServices = services.filter(s => s.selected)
     const totalDuration = selectedServices.reduce((sum, s) => sum + s.duration, 0)
 
-    this.setData({
-      services,
-      selectedServices,
-      totalDuration
-    })
+    this.setData({ services, selectedServices, totalDuration })
   },
 
-  // 下一步
   nextStep() {
     if (this.data.currentStep === 1 && this.data.selectedServices.length === 0) {
       wx.showToast({ title: '请至少选择一个服务项目', icon: 'none' })
       return
     }
 
-    if (this.data.currentStep === 2) {
-      this.setData({ showCalendar: true })
-      return
+    const next = this.data.currentStep + 1
+    const update = { currentStep: next }
+
+    if (next === 2) {
+      update.showCalendar = true
     }
 
-    this.setData({ currentStep: this.data.currentStep + 1 })
-
-    if (this.data.currentStep === 3) {
-      this.loadTimeSlots()
-    }
+    this.setData(update, () => {
+      if (next === 3) {
+        this.loadTimeSlots()
+      }
+    })
   },
 
-  // 上一步
+  openCalendar() {
+    this.setData({ showCalendar: true })
+  },
+
   prevStep() {
     this.setData({
       currentStep: this.data.currentStep - 1,
@@ -90,30 +187,21 @@ Page({
     })
   },
 
-  // 日期选择确认
   onDateConfirm(e) {
     const date = new Date(e.detail)
-    const year = date.getFullYear()
-    const month = String(date.getMonth() + 1).padStart(2, '0')
-    const day = String(date.getDate()).padStart(2, '0')
-    const dateStr = `${year}-${month}-${day}`
+    const dateStr = this.formatDate(date)
 
     this.setData({
       selectedDate: dateStr,
       showCalendar: false,
-      currentStep: 3,
       selectedSlot: null
     })
-
-    this.loadTimeSlots()
   },
 
-  // 关闭日历
   onCalendarClose() {
     this.setData({ showCalendar: false })
   },
 
-  // 加载可用时段
   async loadTimeSlots() {
     this.setData({ slotsLoading: true, timeSlots: [] })
 
@@ -126,7 +214,7 @@ Page({
       })
 
       this.setData({
-        timeSlots: (slots || []).map(s => ({
+        timeSlots: (slots || []).filter(s => s.available).map(s => ({
           ...s,
           selected: false
         })),
@@ -139,25 +227,18 @@ Page({
     }
   },
 
-  // 选择时段
   selectSlot(e) {
     const index = e.currentTarget.dataset.index
     const slot = this.data.timeSlots[index]
-
-    if (!slot.available) return
 
     const timeSlots = this.data.timeSlots.map((s, i) => ({
       ...s,
       selected: i === index
     }))
 
-    this.setData({
-      timeSlots,
-      selectedSlot: slot
-    })
+    this.setData({ timeSlots, selectedSlot: slot })
   },
 
-  // 确认预约
   async confirmBooking() {
     if (!this.data.selectedSlot) {
       wx.showToast({ title: '请选择时段', icon: 'none' })
@@ -176,26 +257,25 @@ Page({
         total_duration: this.data.totalDuration
       })
 
-      this.setData({
-        showSuccess: true,
-        bookingLoading: false
-      })
+      this.setData({ showSuccess: true, bookingLoading: false })
     } catch (err) {
       console.error('预约失败:', err)
-      this.setData({ bookingLoading: false })
-      wx.showToast({ title: err.message || '预约失败', icon: 'none' })
+      this.setData({ bookingLoading: false, selectedSlot: null })
+
+      if (err.message && err.message.includes('约满')) {
+        wx.showToast({ title: '该时段已约满，正在刷新', icon: 'none' })
+        this.loadTimeSlots()
+      } else {
+        wx.showToast({ title: err.message || '预约失败', icon: 'none' })
+      }
     }
   },
 
-  // 跳转到预约列表
   goToAppointments() {
     this.setData({ showSuccess: false })
-    wx.switchTab({
-      url: '/pages/mine/mine'
-    })
+    wx.navigateTo({ url: '/pages/my-appointments/my-appointments' })
   },
 
-  // 关闭成功弹窗
   onSuccessClose() {
     this.setData({ showSuccess: false })
   }

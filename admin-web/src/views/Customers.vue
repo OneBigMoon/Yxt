@@ -13,9 +13,24 @@
     </div>
 
     <el-table :data="customers" border class="table-container">
-      <el-table-column prop="nick_name" label="昵称" width="150" />
+      <el-table-column label="头像" width="80">
+        <template #default="{ row }">
+          <el-avatar :size="40" :src="row.avatar_url || row.avatarUrl">
+            <img src="https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png" />
+          </el-avatar>
+        </template>
+      </el-table-column>
+      <el-table-column label="昵称" width="150">
+        <template #default="{ row }">
+          {{ row.nick_name || row.nickname || '未设置' }}
+        </template>
+      </el-table-column>
       <el-table-column prop="phone" label="手机号" width="150" />
-      <el-table-column prop="created_at" label="注册时间" width="180" />
+      <el-table-column label="注册时间" width="180">
+        <template #default="{ row }">
+          {{ row.created_at || row.createdAt || '' }}
+        </template>
+      </el-table-column>
       <el-table-column label="黑名单" width="100">
         <template #default="{ row }">
           <el-tag :type="row.is_blacklisted ? 'danger' : 'success'" size="small">
@@ -24,7 +39,7 @@
         </template>
       </el-table-column>
       <el-table-column prop="notes" label="备注" min-width="200" show-overflow-tooltip />
-      <el-table-column label="操作" width="250" fixed="right">
+      <el-table-column label="操作" width="300" fixed="right">
         <template #default="{ row }">
           <el-button type="primary" link @click="viewAppointments(row)">预约记录</el-button>
           <el-button type="primary" link @click="editNotes(row)">备注</el-button>
@@ -35,6 +50,7 @@
           >
             {{ row.is_blacklisted ? '取消黑名单' : '加入黑名单' }}
           </el-button>
+          <el-button type="danger" link @click="deleteCustomer(row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -119,6 +135,7 @@ async function loadData() {
     total.value = data.total || customers.value.length
   } catch (err) {
     console.error('加载客户数据失败:', err)
+    ElMessage.error('加载客户数据失败：' + (err.message || '请检查云开发匿名登录是否已开启'))
   }
 }
 
@@ -157,10 +174,25 @@ async function toggleBlacklist(row) {
   }
 }
 
-async function viewAppointments(row) {
-  // TODO: 加载客户预约记录
-  customerAppointments.value = []
-  appointmentsVisible.value = true
+async function deleteCustomer(row) {
+  try {
+    await ElMessageBox.confirm(`确定要删除客户「${row.nick_name || row.phone}」吗？删除后不可恢复。`, '确认删除', {
+      confirmButtonText: '确定删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    await customerApi.delete(row._id)
+    ElMessage.success('删除成功')
+    loadData()
+  } catch (err) {
+    if (err !== 'cancel') {
+      ElMessage.error('删除失败')
+    }
+  }
+}
+
+function viewAppointments() {
+  ElMessage.info('功能暂不可用')
 }
 
 function getStatusType(status) {

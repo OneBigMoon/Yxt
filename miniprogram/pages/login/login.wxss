@@ -139,22 +139,21 @@
 .agreement {
   margin-top: 20rpx;
   display: flex;
+  align-items: center;
   justify-content: center;
 }
 
 .agreement .van-checkbox {
-  display: inline-flex !important;
-  align-items: center;
+  flex-shrink: 0;
 }
 
-.agreement .van-checkbox__label {
-  white-space: nowrap !important;
-  line-height: 1.4;
-}
-
-.agreement-text {
+.agreement-label {
+  margin-left: 8rpx;
   font-size: 24rpx;
   color: #999;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
 }
 
 .link {

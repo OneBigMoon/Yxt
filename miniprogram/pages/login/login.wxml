@@ -6,15 +6,14 @@
   </view>
 
   <view class="login-section">
-    <view class="agreement">
-      <van-checkbox value="{{agreed}}" bind:change="onAgreeChange" shape="square">
-        <text class="agreement-text">
-          我已阅读并同意
-          <text class="link" bindtap="showAgreement">《用户协议》</text>
-          和
-          <text class="link" bindtap="showPrivacy">《隐私政策》</text>
-        </text>
-      </van-checkbox>
+    <view class="agreement" bindtap="onAgreementTap">
+      <van-checkbox value="{{agreed}}" shape="square" />
+      <view class="agreement-label">
+        <text>我已阅读并同意</text>
+        <text class="link" bindtap="showAgreement">《用户协议》</text>
+        <text>和</text>
+        <text class="link" bindtap="showPrivacy">《隐私政策》</text>
+      </view>
     </view>
 
     <button class="phone-login-btn" open-type="getPhoneNumber" bindgetphonenumber="onGetPhoneNumber"

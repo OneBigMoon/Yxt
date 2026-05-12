@@ -52,6 +52,8 @@ export const getArticleDetail = (id) => callFunction('getArticleDetail', { id })
 // 获取营业配置
 export const getConfig = () => callFunction('admin', { action: 'getConfig' })
 
+export const getHolidays = (data) => callFunction('admin', { action: 'getHolidays', data })
+
 export default {
   callFunction,
   login,
@@ -64,5 +66,6 @@ export default {
   getTechAppointments,
   getArticles,
   getArticleDetail,
-  getConfig
+  getConfig,
+  getHolidays
 }

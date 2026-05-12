@@ -8,7 +8,7 @@ exports.main = async (event, context) => {
   try {
     const res = await db.collection('articles')
       .where({
-        status: _.neq('deleted')
+        status: 'published'
       })
       .orderBy('sort', 'asc')
       .limit(10)

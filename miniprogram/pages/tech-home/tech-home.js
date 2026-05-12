@@ -17,7 +17,11 @@ Page({
   },
 
   onShow() {
-    this.loadAppointments()
+    this.checkAuth().then((userInfo) => {
+      if (userInfo && userInfo.role === 'technician') {
+        this.loadAppointments()
+      }
+    })
   },
 
   onPullDownRefresh() {
@@ -30,8 +34,9 @@ Page({
     const userInfo = await checkAuth()
     if (!userInfo || userInfo.role !== 'technician') {
       wx.redirectTo({ url: '/pages/login/login' })
-      return
+      return null
     }
+    return userInfo
   },
 
   async loadAppointments() {

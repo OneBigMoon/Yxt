@@ -28,6 +28,11 @@
         bindtap="toggleService"
         data-index="{{index}}"
       >
+        <image
+          class="service-img"
+          src="{{item.imageUrl || item.image_url || '/images/default-article.png'}}"
+          mode="aspectFill"
+        />
         <view class="service-info">
           <text class="service-name">{{item.name}}</text>
           <text class="service-duration">{{item.duration}}分钟</text>
@@ -51,19 +56,27 @@
   <!-- 步骤2：选择日期 -->
   <view class="step-content" wx:if="{{currentStep === 2}}">
     <view class="section-title">请选择预约日期</view>
+
+    <view class="selected-date" wx:if="{{selectedDate}}" bindtap="openCalendar">
+      <text>已选日期：{{selectedDate}}</text>
+      <text class="change-date-tip">点击修改</text>
+    </view>
+
+    <view class="date-hint" wx:if="{{!selectedDate && !showCalendar}}">
+      <van-button type="primary" plain round block bindtap="openCalendar">选择日期</van-button>
+    </view>
+
     <van-calendar
       show="{{showCalendar}}"
-      bind:confirm="onDateConfirm"
+      show-confirm="{{false}}"
       bind:close="onCalendarClose"
+      bind:select="onCalendarDayClick"
       min-date="{{minDate}}"
       max-date="{{maxDate}}"
       title="选择日期"
       color="#1989fa"
+      formatter="{{calendarFormatter}}"
     />
-
-    <view class="selected-date" wx:if="{{selectedDate}}">
-      <text>已选日期：{{selectedDate}}</text>
-    </view>
 
     <view class="bottom-bar">
       <van-button plain bindtap="prevStep">上一步</van-button>
@@ -88,17 +101,13 @@
 
     <view class="slots-container" wx:if="{{!slotsLoading}}">
       <view
-        class="slot-item {{item.available ? '' : 'disabled'}} {{item.selected ? 'selected' : ''}}"
+        class="slot-item {{item.selected ? 'selected' : ''}}"
         wx:for="{{timeSlots}}"
         wx:key="time"
         bindtap="selectSlot"
         data-index="{{index}}"
       >
         <text class="slot-time">{{item.time}}</text>
-        <text class="slot-count" wx:if="{{item.available}}">
-          剩余 {{item.remaining}} 个名额
-        </text>
-        <text class="slot-count" wx:else>已约满</text>
       </view>
 
       <van-empty

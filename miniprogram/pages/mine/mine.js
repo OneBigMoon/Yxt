@@ -1,13 +1,11 @@
-const { getMyAppointments, getConfig } = require('../../utils/api')
-const { checkAuth } = require('../../utils/auth')
+const { getConfig } = require('../../utils/api')
+const { checkAuth, logout } = require('../../utils/auth')
 
 Page({
   data: {
     userInfo: {},
-    clinicInfo: {},
-    activeTab: 'pending',
-    appointments: [],
-    loading: true
+    isLoggedIn: false,
+    clinicInfo: {}
   },
 
   onLoad() {
@@ -17,22 +15,14 @@ Page({
 
   onShow() {
     this.loadUserInfo()
-    this.loadAppointments()
-  },
-
-  onPullDownRefresh() {
-    Promise.all([
-      this.loadConfig(),
-      this.loadAppointments()
-    ]).then(() => {
-      wx.stopPullDownRefresh()
-    })
   },
 
   loadUserInfo() {
     checkAuth().then(userInfo => {
       if (userInfo) {
-        this.setData({ userInfo })
+        this.setData({ userInfo, isLoggedIn: true })
+      } else {
+        this.setData({ userInfo: {}, isLoggedIn: false })
       }
     })
   },
@@ -40,45 +30,18 @@ Page({
   async loadConfig() {
     try {
       const config = await getConfig()
-      this.setData({
-        clinicInfo: config.store || {}
-      })
+      this.setData({ clinicInfo: config.store || {} })
     } catch (err) {
       console.error('获取配置失败:', err)
     }
   },
 
-  async loadAppointments() {
-    this.setData({ loading: true })
-
-    try {
-      const appointments = await getMyAppointments({
-        status: this.data.activeTab
-      })
-
-      this.setData({
-        appointments: appointments || [],
-        loading: false
-      })
-    } catch (err) {
-      console.error('获取预约列表失败:', err)
-      this.setData({ loading: false })
-    }
+  goLogin() {
+    wx.navigateTo({ url: '/pages/login/login' })
   },
 
-  onTabChange(e) {
-    this.setData({
-      activeTab: e.detail.name,
-      appointments: []
-    })
-    this.loadAppointments()
-  },
-
-  viewDetail(e) {
-    const id = e.currentTarget.dataset.id
-    wx.navigateTo({
-      url: `/pages/appointment-detail/appointment-detail?id=${id}`
-    })
+  goMyAppointments() {
+    wx.navigateTo({ url: '/pages/my-appointments/my-appointments' })
   },
 
   openLocation() {
@@ -90,6 +53,31 @@ Page({
         name: clinicInfo.name,
         address: clinicInfo.address
       })
+    } else {
+      wx.showToast({ title: '暂无门店位置信息', icon: 'none' })
     }
+  },
+
+  callPhone() {
+    const { clinicInfo } = this.data
+    if (clinicInfo.phone) {
+      wx.makePhoneCall({ phoneNumber: clinicInfo.phone })
+    } else {
+      wx.showToast({ title: '暂无门店电话', icon: 'none' })
+    }
+  },
+
+  handleLogout() {
+    wx.showModal({
+      title: '提示',
+      content: '确定要退出登录吗？',
+      success: (res) => {
+        if (res.confirm) {
+          logout()
+          this.setData({ userInfo: {}, isLoggedIn: false })
+          wx.showToast({ title: '已退出登录', icon: 'success' })
+        }
+      }
+    })
   }
 })

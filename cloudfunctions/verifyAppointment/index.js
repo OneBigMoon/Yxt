@@ -43,7 +43,7 @@ exports.main = async (event, context) => {
         data: {
           status: 'completed',
           technician_id: technician._id,
-          verified_at: this.formatDateTime(new Date()),
+          verified_at: formatDateTime(new Date()),
           updated_at: db.serverDate()
         }
       })
@@ -53,7 +53,7 @@ exports.main = async (event, context) => {
     }
 
     // 计算提成并记录
-    await this.createCommissionRecords(appointment, technician)
+    await createCommissionRecords(appointment, technician)
 
     // 发送核销完成通知
     try {
@@ -62,7 +62,7 @@ exports.main = async (event, context) => {
         templateId: 'your-template-id', // 替换为你的模板ID
         data: {
           thing1: { value: '核销完成' },
-          time2: { value: this.formatDateTime(new Date()) },
+          time2: { value: formatDateTime(new Date()) },
           thing3: { value: '感谢您的光临' }
         }
       })
@@ -75,10 +75,9 @@ exports.main = async (event, context) => {
     console.error('核销预约失败:', err)
     return { code: -1, message: err.message || '核销失败' }
   }
-},
+};
 
-// 创建提成记录
-async createCommissionRecords(appointment, technician) {
+async function createCommissionRecords(appointment, technician) {
   try {
     // 获取服务信息
     const servicesRes = await db.collection('services')
@@ -116,10 +115,9 @@ async createCommissionRecords(appointment, technician) {
   } catch (err) {
     console.error('创建提成记录失败:', err)
   }
-},
+}
 
-// 格式化日期时间
-formatDateTime(date) {
+function formatDateTime(date) {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')

@@ -32,6 +32,7 @@ exports.main = async (event, context) => {
 
       let role = 'patient'
       let technicianInfo = null
+      let isNewUser = false
 
       if (phoneNumber) {
         try {
@@ -75,9 +76,10 @@ exports.main = async (event, context) => {
         userData = {
           ...userRes.data[0],
           ...updateData,
-          role: userRes.data[0].role || role
+          role: role
         }
       } else {
+        isNewUser = true
         const newUser = {
           openid: OPENID,
           nick_name: loginNickName,
@@ -105,7 +107,39 @@ exports.main = async (event, context) => {
           nick_name: userData.nick_name,
           avatar_url: userData.avatar_url,
           phone: phoneNumber || '',
-          technician_id: technicianInfo ? technicianInfo._id : null
+          technician_id: technicianInfo ? technicianInfo._id : null,
+          isNewUser
+        }
+      }
+    }
+
+    if (type === 'updateProfile') {
+      const { nickName, avatarUrl } = event
+
+      const userRes = await db.collection('users')
+        .where({ openid: OPENID })
+        .get()
+
+      if (userRes.data.length === 0) {
+        return { code: -1, message: '用户不存在' }
+      }
+
+      const updateData = { updated_at: db.serverDate() }
+      if (nickName) updateData.nick_name = nickName
+      if (avatarUrl) updateData.avatar_url = avatarUrl
+
+      await db.collection('users')
+        .doc(userRes.data[0]._id)
+        .update({ data: updateData })
+
+      return {
+        code: 0,
+        data: {
+          openid: OPENID,
+          role: userRes.data[0].role,
+          nick_name: nickName || userRes.data[0].nick_name,
+          avatar_url: avatarUrl || userRes.data[0].avatar_url,
+          phone: userRes.data[0].phone || ''
         }
       }
     }
