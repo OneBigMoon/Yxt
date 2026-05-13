@@ -108,7 +108,7 @@ Page({
   showAgreement() {
     wx.showModal({
       title: '用户协议',
-      content: '用户协议内容...',
+      content: '1. 本小程序提供中医门诊预约服务，用户需提供真实个人信息。\n2. 预约成功后请按时到店，如需取消请提前操作。\n3. 爽约3次以上将限制预约功能。\n4. 本协议最终解释权归壹心堂中医门诊所有。',
       showCancel: false
     })
   },
@@ -116,7 +116,7 @@ Page({
   showPrivacy() {
     wx.showModal({
       title: '隐私政策',
-      content: '隐私政策内容...',
+      content: '1. 我们仅收集预约服务所需的必要信息（手机号、昵称）。\n2. 您的个人信息仅用于预约管理和门店服务，不会提供给第三方。\n3. 您可随时联系我们删除您的个人数据。\n4. 如有疑问请联系门店客服。',
       showCancel: false
     })
   }

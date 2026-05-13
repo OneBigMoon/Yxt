@@ -1,5 +1,9 @@
 <template>
-  <el-container class="app-container">
+  <!-- 登录页无布局 -->
+  <router-view v-if="currentRoute.path === '/login'" />
+
+  <!-- 主布局 -->
+  <el-container v-else class="app-container">
     <el-aside width="200px" class="app-aside">
       <div class="logo">
         <h2>中医门诊</h2>
@@ -83,14 +87,26 @@
 
 <script setup>
 import { computed } from 'vue'
-import { useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const currentRoute = useRoute()
+const router = useRouter()
 const activeMenu = computed(() => currentRoute.path)
 
-function handleLogout() {
-  ElMessage.info('管理后台无需登录')
+async function handleLogout() {
+  try {
+    await ElMessageBox.confirm('确定要退出登录吗？', '提示', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    sessionStorage.removeItem('admin_loggedin')
+    router.push('/login')
+    ElMessage.success('已退出登录')
+  } catch {
+    // 取消
+  }
 }
 </script>
 

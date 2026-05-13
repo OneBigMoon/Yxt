@@ -2,6 +2,12 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 
 const routes = [
   {
+    path: '/login',
+    name: 'Login',
+    component: () => import('../views/Login.vue'),
+    meta: { title: '登录', public: true }
+  },
+  {
     path: '/',
     name: 'Dashboard',
     component: () => import('../views/Dashboard.vue'),
@@ -60,6 +66,19 @@ const routes = [
 const router = createRouter({
   history: createWebHashHistory(),
   routes
+})
+
+// 路由守卫
+router.beforeEach((to, from, next) => {
+  const isLoggedIn = sessionStorage.getItem('admin_loggedin') === 'true'
+
+  if (to.meta.public) {
+    next()
+  } else if (!isLoggedIn) {
+    next('/login')
+  } else {
+    next()
+  }
 })
 
 export default router

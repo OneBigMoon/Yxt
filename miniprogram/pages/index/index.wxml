@@ -13,7 +13,6 @@
   <view class="section">
     <view class="section-title">
       <text class="title-text">健康小知识</text>
-      <text class="title-more" bindtap="viewAllArticles">查看全部 ></text>
     </view>
 
     <view class="article-list">
