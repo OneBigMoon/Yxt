@@ -8,7 +8,7 @@ Page({
   },
 
   onLoad() {
-    this.loadAppointments()
+    // 首次加载由 onShow 处理
   },
 
   onShow() {

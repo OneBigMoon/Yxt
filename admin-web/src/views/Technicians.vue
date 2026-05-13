@@ -15,7 +15,11 @@
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="created_at" label="创建时间" width="180" />
+      <el-table-column label="创建时间" width="180">
+        <template #default="{ row }">
+          {{ formatTime(row.created_at || row.createdAt) }}
+        </template>
+      </el-table-column>
       <el-table-column label="操作" width="300" fixed="right">
         <template #default="{ row }">
           <el-button type="primary" link @click="editTechnician(row)">编辑</el-button>
@@ -201,6 +205,17 @@ function editCommission(row) {
 }
 
 async function saveCommission() {
+  // 验证提成不超过服务价格
+  for (const key of Object.keys(commissionData.value)) {
+    const commission = commissionData.value[key] || 0
+    const service = services.value.find(s => s._id === key)
+    const price = service ? (service.price || 0) / 100 : 0
+    if (commission > price) {
+      ElMessage.warning(`「${service ? service.name : key}」的提成不能大于服务价格（¥${price.toFixed(2)}）`)
+      return
+    }
+  }
+
   try {
     const custom_commissions = {}
     Object.keys(commissionData.value).forEach(key => {
@@ -214,6 +229,14 @@ async function saveCommission() {
   } catch (err) {
     ElMessage.error('保存失败')
   }
+}
+
+function formatTime(val) {
+  if (!val) return '-'
+  const d = new Date(val)
+  if (isNaN(d.getTime())) return val
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 </script>
 

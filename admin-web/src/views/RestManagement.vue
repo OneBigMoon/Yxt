@@ -218,8 +218,21 @@ async function deleteClosure(row) {
 }
 
 async function importHolidays() {
-  // TODO: 实现法定节假日导入
-  ElMessage.info('功能开发中')
+  try {
+    await ElMessageBox.confirm('将导入2026年中国法定节假日（元旦、春节、清明、劳动节、端午、中秋、国庆），已存在的日期会自动跳过。确定导入吗？', '导入法定节假日', {
+      confirmButtonText: '确定导入',
+      cancelButtonText: '取消',
+      type: 'info'
+    })
+
+    const result = await restApi.importHolidays()
+    ElMessage.success(result.message || '导入成功')
+    loadClosures()
+  } catch (err) {
+    if (err !== 'cancel') {
+      ElMessage.error('导入失败')
+    }
+  }
 }
 
 function showAddTechOff() {

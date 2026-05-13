@@ -48,7 +48,7 @@ exports.main = async (event, context) => {
         data: {
           status: 'completed',
           technician_id: technician._id,
-          verified_at: formatDateTime(new Date()),
+          verified_at: db.serverDate(),
           updated_at: db.serverDate()
         }
       })

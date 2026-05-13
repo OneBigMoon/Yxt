@@ -9,7 +9,7 @@ Page({
   },
 
   onLoad() {
-    this.loadData()
+    // 首次加载由 onShow 处理
   },
 
   onShow() {

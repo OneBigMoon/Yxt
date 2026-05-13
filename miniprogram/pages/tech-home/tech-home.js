@@ -82,6 +82,20 @@ Page({
     })
   },
 
+  // 从列表核销
+  verifyFromList(e) {
+    const id = e.currentTarget.dataset.id
+    wx.showModal({
+      title: '确认核销',
+      content: '确定要核销该预约吗？',
+      success: (res) => {
+        if (res.confirm) {
+          this.verifyAppointment(id)
+        }
+      }
+    })
+  },
+
   // 核销预约
   async verifyAppointment(appointmentId) {
     try {

@@ -34,6 +34,7 @@ Page({
         return
       }
 
+      this._authChecked = true
       this.loadConfig()
       this.loadServices()
       this.scanAvailability()
@@ -64,9 +65,18 @@ Page({
     })
   },
 
-  async scanAvailability() {
+  onShow() {
+    // 每次页面显示时刷新配置和可预约状态
+    if (this._authChecked) {
+      this.loadConfig()
+      this.scanAvailability()
+    }
+  },
+
+  async scanAvailability(totalDuration) {
     try {
-      const result = await checkAvailability({})
+      const params = totalDuration ? { totalDuration } : {}
+      const result = await checkAvailability(params)
 
       this.setData({
         hasAnyAvailable: result.hasAnyAvailable,
@@ -182,17 +192,54 @@ Page({
         wx.showToast({ title: '请至少选择一个服务项目', icon: 'none' })
         return
       }
-      this.setData({ currentStep: 3 })
-      this.loadTimeSlots()
+      // 用实际时长验证所选日期是否还有空位
+      this.verifyDateAvailability()
       return
     }
   },
 
   prevStep() {
     if (this.data.currentStep === 2) {
+      // 返回日期选择时，用已选服务时长重新扫描可用日期
       this.setData({ currentStep: 1, selectedDate: '', selectedSlot: null })
+      if (this.data.totalDuration > 0) {
+        this.scanAvailability(this.data.totalDuration)
+      }
     } else if (this.data.currentStep === 3) {
       this.setData({ currentStep: 2, selectedSlot: null, timeSlots: [] })
+    }
+  },
+
+  async verifyDateAvailability() {
+    wx.showLoading({ title: '验证时段...' })
+
+    try {
+      const result = await checkAvailability({ totalDuration: this.data.totalDuration })
+      const dateStatus = result.dateStatus || {}
+      const todayStatus = dateStatus[this.data.selectedDate]
+
+      wx.hideLoading()
+
+      if (todayStatus && todayStatus.status === 'full') {
+        // 所选日期已满，更新日历状态，回到日期选择
+        this.setData({
+          dateStatus,
+          selectedDate: '',
+          currentStep: 1
+        })
+        wx.showToast({ title: '该日期已约满，请重新选择', icon: 'none' })
+        return
+      }
+
+      // 日期可用，进入时段选择
+      this.setData({ currentStep: 3 })
+      this.loadTimeSlots()
+    } catch (err) {
+      wx.hideLoading()
+      console.error('验证日期可用性失败:', err)
+      // 验证失败也允许继续
+      this.setData({ currentStep: 3 })
+      this.loadTimeSlots()
     }
   },
 

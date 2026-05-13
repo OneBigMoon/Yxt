@@ -119,6 +119,9 @@ export const restApi = {
   },
   deleteTechDayOff(id) {
     return callAdmin('deleteTechDayOff', { id })
+  },
+  importHolidays() {
+    return callAdmin('importHolidays')
   }
 }
 

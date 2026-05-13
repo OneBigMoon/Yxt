@@ -52,6 +52,17 @@
             <text>{{item.patient_name || '未知用户'}}</text>
           </view>
         </view>
+        <view class="apt-actions" wx:if="{{item.status === 'pending'}}">
+          <van-button
+            type="success"
+            size="small"
+            round
+            bindtap="verifyFromList"
+            data-id="{{item._id}}"
+          >
+            核销
+          </van-button>
+        </view>
       </view>
 
       <van-empty

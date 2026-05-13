@@ -15,8 +15,8 @@
     <el-table :data="customers" border class="table-container">
       <el-table-column label="头像" width="80">
         <template #default="{ row }">
-          <el-avatar :size="40" :src="row.avatar_url || row.avatarUrl">
-            <img src="https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png" />
+          <el-avatar :size="40" :src="(row.avatar_url || row.avatarUrl) || undefined">
+            <img src="/logo.jpg" />
           </el-avatar>
         </template>
       </el-table-column>
@@ -28,7 +28,7 @@
       <el-table-column prop="phone" label="手机号" width="150" />
       <el-table-column label="注册时间" width="180">
         <template #default="{ row }">
-          {{ row.created_at || row.createdAt || '' }}
+          {{ formatTime(row.created_at || row.createdAt) }}
         </template>
       </el-table-column>
       <el-table-column label="黑名单" width="100">
@@ -159,7 +159,10 @@ async function saveNotes() {
 async function toggleBlacklist(row) {
   const action = row.is_blacklisted ? '取消黑名单' : '加入黑名单'
   try {
-    await ElMessageBox.confirm(`确定要将该客户${action}吗？`, '确认操作', {
+    const msg = row.is_blacklisted
+      ? '确定要取消该客户的黑名单吗？取消后可正常预约。'
+      : '确定要将该客户加入黑名单吗？加入后该客户预约时将提示"您的账号注册信息有误，请联系门店"。'
+    await ElMessageBox.confirm(msg, '确认操作', {
       confirmButtonText: '确定',
       cancelButtonText: '取消',
       type: 'warning'
@@ -193,6 +196,14 @@ async function deleteCustomer(row) {
 
 function viewAppointments() {
   ElMessage.info('功能暂不可用')
+}
+
+function formatTime(val) {
+  if (!val) return '-'
+  const d = new Date(val)
+  if (isNaN(d.getTime())) return val
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 function getStatusType(status) {

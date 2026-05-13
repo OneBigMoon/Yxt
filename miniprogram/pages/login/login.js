@@ -42,6 +42,18 @@ Page({
     try {
       const result = await fullLogin(null, e.detail.code)
 
+      // 黑名单检查
+      if (result.is_blacklisted) {
+        this.setData({ loginLoading: false })
+        wx.showModal({
+          title: '账号异常',
+          content: '您的账号注册信息有误，请联系门店处理',
+          showCancel: false,
+          confirmText: '知道了'
+        })
+        return
+      }
+
       if (result.isNewUser && result.role === 'technician') {
         this.setData({ loginLoading: false })
         wx.showToast({ title: '登录成功', icon: 'success' })

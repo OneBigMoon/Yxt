@@ -81,6 +81,10 @@ exports.main = async (event, context) => {
       case 'toggleArticleStatus':
         return await toggleArticleStatus(data)
 
+      // 导入法定节假日
+      case 'importHolidays':
+        return await importHolidays()
+
       default:
         return { code: -1, message: '未知操作' }
     }
@@ -721,4 +725,67 @@ async function toggleTechnicianStatus(data) {
     })
 
   return { code: 0, data: { message: '状态更新成功' } }
+}
+
+// ==================== 导入法定节假日 ====================
+
+async function importHolidays() {
+  // 2026年中国法定节假日
+  const holidays = [
+    { date: '2026-01-01', reason: '元旦' },
+    { date: '2026-02-15', reason: '春节' },
+    { date: '2026-02-16', reason: '春节' },
+    { date: '2026-02-17', reason: '春节' },
+    { date: '2026-02-18', reason: '春节' },
+    { date: '2026-02-19', reason: '春节' },
+    { date: '2026-02-20', reason: '春节' },
+    { date: '2026-02-21', reason: '春节' },
+    { date: '2026-04-04', reason: '清明节' },
+    { date: '2026-04-05', reason: '清明节' },
+    { date: '2026-04-06', reason: '清明节' },
+    { date: '2026-05-01', reason: '劳动节' },
+    { date: '2026-05-02', reason: '劳动节' },
+    { date: '2026-05-03', reason: '劳动节' },
+    { date: '2026-05-04', reason: '劳动节' },
+    { date: '2026-05-05', reason: '劳动节' },
+    { date: '2026-06-19', reason: '端午节' },
+    { date: '2026-06-20', reason: '端午节' },
+    { date: '2026-06-21', reason: '端午节' },
+    { date: '2026-10-01', reason: '国庆节' },
+    { date: '2026-10-02', reason: '国庆节' },
+    { date: '2026-10-03', reason: '国庆节' },
+    { date: '2026-10-04', reason: '中秋节' },
+    { date: '2026-10-05', reason: '国庆节' },
+    { date: '2026-10-06', reason: '国庆节' },
+    { date: '2026-10-07', reason: '国庆节' },
+  ]
+
+  let added = 0
+  let skipped = 0
+
+  for (const h of holidays) {
+    const existing = await db.collection('holidays')
+      .where({ date: h.date, type: 'closure' })
+      .get()
+
+    if (existing.data.length > 0) {
+      skipped++
+      continue
+    }
+
+    await db.collection('holidays').add({
+      data: {
+        date: h.date,
+        type: 'closure',
+        reason: h.reason,
+        created_at: db.serverDate()
+      }
+    })
+    added++
+  }
+
+  return {
+    code: 0,
+    data: { message: `导入完成：新增 ${added} 天，跳过 ${skipped} 天已存在记录` }
+  }
 }

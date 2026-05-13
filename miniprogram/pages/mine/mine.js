@@ -1,4 +1,4 @@
-const { getConfig } = require('../../utils/api')
+const { getConfig, login } = require('../../utils/api')
 const { checkAuth, logout } = require('../../utils/auth')
 
 Page({
@@ -9,7 +9,6 @@ Page({
   },
 
   onLoad() {
-    this.loadUserInfo()
     this.loadConfig()
   },
 
@@ -27,10 +26,33 @@ Page({
           maskedPhone = userInfo.phone || ''
         }
         this.setData({ userInfo, isLoggedIn: true, maskedPhone })
+
+        // 实时检查黑名单状态
+        this.checkBlacklist()
       } else {
         this.setData({ userInfo: {}, isLoggedIn: false, maskedPhone: '' })
       }
     })
+  },
+
+  async checkBlacklist() {
+    try {
+      const res = await login({ type: 'login' })
+      if (res && res.is_blacklisted) {
+        wx.showModal({
+          title: '账号异常',
+          content: '您的账号注册信息有误，请联系门店处理',
+          showCancel: false,
+          confirmText: '知道了',
+          success: () => {
+            logout()
+            this.setData({ userInfo: {}, isLoggedIn: false, maskedPhone: '' })
+          }
+        })
+      }
+    } catch (err) {
+      // 检查失败不影响正常使用
+    }
   },
 
   async loadConfig() {

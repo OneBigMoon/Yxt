@@ -178,6 +178,11 @@ async function saveService() {
     return
   }
 
+  if ((formData.value.default_commission || 0) > (formData.value.price || 0)) {
+    ElMessage.warning('默认提成不能大于服务价格')
+    return
+  }
+
   try {
     const data = {
       ...formData.value,

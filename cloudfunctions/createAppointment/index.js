@@ -26,7 +26,7 @@ exports.main = async (event, context) => {
       .get()
 
     if (userRes.data.length > 0 && userRes.data[0].is_blacklisted) {
-      return { code: -1, message: '您已被限制预约，请联系门诊' }
+      return { code: -1, message: '您的账号注册信息有误，请联系门店' }
     }
 
     const holidaysRes = await db.collection('holidays')

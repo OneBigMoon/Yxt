@@ -119,7 +119,8 @@ exports.main = async (event, context) => {
           avatar_url: userData.avatar_url,
           phone: phoneNumber || '',
           technician_id: technicianInfo ? technicianInfo._id : null,
-          isNewUser
+          isNewUser,
+          is_blacklisted: userData.is_blacklisted || false
         }
       }
     }

@@ -80,7 +80,11 @@
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="created_at" label="核销时间" width="180" />
+      <el-table-column label="核销时间" width="180">
+        <template #default="{ row }">
+          {{ formatTime(row.created_at) }}
+        </template>
+      </el-table-column>
     </el-table>
 
     <div class="pagination-container">
@@ -167,6 +171,14 @@ async function loadSummary() {
     console.error('加载统计失败:', err)
     ElMessage.error('加载统计数据失败')
   }
+}
+
+function formatTime(val) {
+  if (!val) return '-'
+  const d = new Date(val)
+  if (isNaN(d.getTime())) return val
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 </script>
 

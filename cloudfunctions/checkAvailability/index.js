@@ -5,7 +5,27 @@ const db = cloud.database()
 const _ = db.command
 
 exports.main = async (event, context) => {
+  const { totalDuration } = event
+  const { OPENID } = cloud.getWXContext()
+
   try {
+    // 0. 检查是否被拉黑
+    if (OPENID) {
+      const userRes = await db.collection('users')
+        .where({ openid: OPENID })
+        .get()
+      if (userRes.data.length > 0 && userRes.data[0].is_blacklisted) {
+        return {
+          code: 0,
+          data: {
+            hasAnyAvailable: false,
+            dateStatus: {},
+            message: '您的账号注册信息有误，请联系门店'
+          }
+        }
+      }
+    }
+
     // 1. 获取营业配置
     const configRes = await db.collection('business_config').limit(1).get()
     if (configRes.data.length === 0) {
@@ -95,8 +115,8 @@ exports.main = async (event, context) => {
         continue
       }
 
-      // 检查是否有可用时段（用最小服务时长30分钟检查）
-      const minDuration = 30
+      // 检查是否有可用时段
+      const minDuration = totalDuration || 30
       const appointments = appointmentsByDate[dateStr] || []
       let hasSlot = false
 
