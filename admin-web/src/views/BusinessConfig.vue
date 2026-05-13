@@ -148,6 +148,7 @@ async function loadConfig() {
     }
   } catch (err) {
     console.error('加载配置失败:', err)
+    ElMessage.error('加载配置失败')
   }
 }
 

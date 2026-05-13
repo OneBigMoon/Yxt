@@ -39,7 +39,7 @@ Page({
 
   onTabChange(e) {
     this.setData({
-      activeTab: e.detail.name,
+      activeTab: e.detail,
       appointments: []
     })
     this.loadAppointments()

@@ -47,10 +47,13 @@
       <el-form :model="closureForm" label-width="80px">
         <el-form-item label="日期" required>
           <el-date-picker
-            v-model="closureForm.date"
-            type="date"
-            placeholder="选择日期"
+            v-model="closureForm.dates"
+            type="dates"
+            placeholder="选择一个或多个日期"
             value-format="YYYY-MM-DD"
+            :disabled-date="disablePastDate"
+            :cell-class-name="cellClassName"
+            style="width: 100%;"
           />
         </el-form-item>
         <el-form-item label="原因">
@@ -80,10 +83,13 @@
         </el-form-item>
         <el-form-item label="日期" required>
           <el-date-picker
-            v-model="techOffForm.date"
-            type="date"
-            placeholder="选择日期"
+            v-model="techOffForm.dates"
+            type="dates"
+            placeholder="选择一个或多个日期"
             value-format="YYYY-MM-DD"
+            :disabled-date="disablePastDate"
+            :cell-class-name="cellClassName"
+            style="width: 100%;"
           />
         </el-form-item>
         <el-form-item label="原因">
@@ -111,10 +117,22 @@ const techDaysOff = ref([])
 const technicians = ref([])
 
 const closureVisible = ref(false)
-const closureForm = ref({ date: '', reason: '' })
+const closureForm = ref({ dates: [], reason: '' })
 
 const techOffVisible = ref(false)
-const techOffForm = ref({ technician_id: '', date: '', reason: '' })
+const techOffForm = ref({ technician_id: '', dates: [], reason: '' })
+
+function disablePastDate(date) {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return date.getTime() < today.getTime()
+}
+
+function cellClassName({ day }) {
+  const today = new Date()
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+  return day === todayStr ? 'is-today-cell' : ''
+}
 
 onMounted(() => {
   loadClosures()
@@ -127,6 +145,7 @@ async function loadClosures() {
     closures.value = await restApi.getHolidays({ type: 'closure' })
   } catch (err) {
     console.error('加载停业日失败:', err)
+    ElMessage.error('加载停业日失败')
   }
 }
 
@@ -136,6 +155,7 @@ async function loadTechDaysOff() {
     techDaysOff.value = data || []
   } catch (err) {
     console.error('加载技师休假失败:', err)
+    ElMessage.error('加载技师休假失败')
   }
 }
 
@@ -144,31 +164,40 @@ async function loadTechnicians() {
     technicians.value = await technicianApi.getList()
   } catch (err) {
     console.error('加载技师列表失败:', err)
+    ElMessage.error('加载技师列表失败')
   }
 }
 
 function showAddClosure() {
-  closureForm.value = { date: '', reason: '' }
+  closureForm.value = { dates: [], reason: '' }
   closureVisible.value = true
 }
 
 async function addClosure() {
-  if (!closureForm.value.date) {
+  const { dates, reason } = closureForm.value
+  if (!dates || dates.length === 0) {
     ElMessage.warning('请选择日期')
     return
   }
 
-  try {
-    await restApi.addHoliday({
-      ...closureForm.value,
-      type: 'closure'
-    })
-    ElMessage.success('添加成功')
-    closureVisible.value = false
-    loadClosures()
-  } catch (err) {
-    ElMessage.error('添加失败')
+  let successCount = 0
+  let skipCount = 0
+  for (const date of dates) {
+    try {
+      await restApi.addHoliday({ date, type: 'closure', reason: reason || '' })
+      successCount++
+    } catch (err) {
+      if (err.message && err.message.includes('已存在')) {
+        skipCount++
+      }
+    }
   }
+
+  closureVisible.value = false
+  let msg = `成功添加 ${successCount} 天停业`
+  if (skipCount > 0) msg += `，${skipCount} 天已存在跳过`
+  ElMessage.success(msg)
+  loadClosures()
 }
 
 async function deleteClosure(row) {
@@ -194,24 +223,35 @@ async function importHolidays() {
 }
 
 function showAddTechOff() {
-  techOffForm.value = { technician_id: '', date: '', reason: '' }
+  techOffForm.value = { technician_id: '', dates: [], reason: '' }
   techOffVisible.value = true
 }
 
 async function addTechOff() {
-  if (!techOffForm.value.technician_id || !techOffForm.value.date) {
+  const { technician_id, dates, reason } = techOffForm.value
+  if (!technician_id || !dates || dates.length === 0) {
     ElMessage.warning('请填写完整信息')
     return
   }
 
-  try {
-    await restApi.addTechDayOff(techOffForm.value)
-    ElMessage.success('添加成功')
-    techOffVisible.value = false
-    loadTechDaysOff()
-  } catch (err) {
-    ElMessage.error('添加失败')
+  let successCount = 0
+  let skipCount = 0
+  for (const date of dates) {
+    try {
+      await restApi.addTechDayOff({ technician_id, date, reason: reason || '' })
+      successCount++
+    } catch (err) {
+      if (err.message && err.message.includes('已存在')) {
+        skipCount++
+      }
+    }
   }
+
+  techOffVisible.value = false
+  let msg = `成功添加 ${successCount} 天休假`
+  if (skipCount > 0) msg += `，${skipCount} 天已存在跳过`
+  ElMessage.success(msg)
+  loadTechDaysOff()
 }
 
 async function deleteTechOff(row) {
@@ -244,5 +284,16 @@ async function deleteTechOff(row) {
   margin-bottom: 20px;
   display: flex;
   gap: 10px;
+}
+</style>
+
+<style>
+.is-today-cell {
+  background: #ecf5ff !important;
+  border-radius: 50%;
+}
+.is-today-cell .el-date-table-cell__text {
+  color: #409eff !important;
+  font-weight: bold;
 }
 </style>

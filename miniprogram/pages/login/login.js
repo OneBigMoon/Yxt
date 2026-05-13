@@ -42,12 +42,15 @@ Page({
     try {
       const result = await fullLogin(null, e.detail.code)
 
-      if (result.isNewUser) {
-        this.setData({
-          showProfileForm: true,
-          loggedRole: result.role,
-          loginLoading: false
-        })
+      if (result.isNewUser && result.role === 'technician') {
+        this.setData({ loginLoading: false })
+        wx.showToast({ title: '登录成功', icon: 'success' })
+        setTimeout(() => {
+          this.routeByRole('technician')
+        }, 1000)
+      } else if (result.isNewUser) {
+        this.setData({ loginLoading: false, loggedRole: result.role || 'patient' })
+        wx.navigateTo({ url: '/pages/profile/profile' })
       } else {
         wx.showToast({ title: '登录成功', icon: 'success' })
         setTimeout(() => {
@@ -65,14 +68,14 @@ Page({
     this.setData({ loginLoading: true })
 
     try {
-      const result = await updateProfile(
+      await updateProfile(
         this.data.nickName || '微信用户',
         this.data.avatarUrl || ''
       )
 
       wx.showToast({ title: '注册成功', icon: 'success' })
       setTimeout(() => {
-        this.routeByRole(result.role)
+        this.routeByRole(this.data.loggedRole || 'patient')
       }, 1000)
     } catch (err) {
       console.error('注册失败:', err)

@@ -20,23 +20,6 @@
       loading="{{loginLoading}}" disabled="{{!agreed}}">
       微信快捷登录
     </button>
-
-    <view class="profile-form" wx:if="{{showProfileForm}}">
-      <view class="form-item">
-        <text class="form-label">头像</text>
-        <button class="avatar-btn" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar">
-          <image class="avatar" src="{{avatarUrl || '/images/logo.jpg'}}" mode="aspectFill"></image>
-          <text class="avatar-tip">点击选择</text>
-        </button>
-      </view>
-      <view class="form-item">
-        <text class="form-label">昵称</text>
-        <input class="nickname-input" type="nickname" placeholder="点击使用微信昵称" bindchange="onNicknameChange" value="{{nickName}}" />
-      </view>
-      <button class="complete-btn" bindtap="onCompleteProfile" loading="{{loginLoading}}">
-        完成注册
-      </button>
-    </view>
   </view>
 
   <view class="footer">

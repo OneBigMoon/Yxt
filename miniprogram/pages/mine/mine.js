@@ -20,9 +20,15 @@ Page({
   loadUserInfo() {
     checkAuth().then(userInfo => {
       if (userInfo) {
-        this.setData({ userInfo, isLoggedIn: true })
+        let maskedPhone = ''
+        if (userInfo.phone && userInfo.phone.length === 11) {
+          maskedPhone = userInfo.phone.substring(0, 3) + '****' + userInfo.phone.substring(7)
+        } else {
+          maskedPhone = userInfo.phone || ''
+        }
+        this.setData({ userInfo, isLoggedIn: true, maskedPhone })
       } else {
-        this.setData({ userInfo: {}, isLoggedIn: false })
+        this.setData({ userInfo: {}, isLoggedIn: false, maskedPhone: '' })
       }
     })
   },
@@ -33,6 +39,7 @@ Page({
       this.setData({ clinicInfo: config.store || {} })
     } catch (err) {
       console.error('获取配置失败:', err)
+      wx.showToast({ title: '获取门店信息失败', icon: 'none' })
     }
   },
 

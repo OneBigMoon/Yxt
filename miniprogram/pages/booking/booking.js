@@ -18,7 +18,8 @@ Page({
     disabledDates: [],
     restDays: [],
     holidays: [],
-    calendarFormatter: null
+    calendarFormatter: null,
+    closureNotice: ''
   },
 
   onLoad() {
@@ -102,11 +103,23 @@ Page({
         disabledDates.push(hDate.getTime())
       }
 
+      // 检查今天是否停业
+      const today = this.formatDate(new Date())
+      const todayHoliday = holidays.find(h => h.date === today)
+      let closureNotice = ''
+      if (todayHoliday) {
+        const nextDay = this.findNextBusinessDay(restDays, holidays, maxAdvanceDays)
+        closureNotice = todayHoliday.reason
+          ? `今日停业：${todayHoliday.reason}，预计${nextDay}恢复营业`
+          : `今日停业，预计${nextDay}恢复营业`
+      }
+
       this.setData({
         maxDate,
         restDays,
         disabledDates,
-        holidays
+        holidays,
+        closureNotice
       })
     } catch (err) {
       console.error('获取配置失败:', err)
@@ -142,6 +155,21 @@ Page({
     const month = String(date.getMonth() + 1).padStart(2, '0')
     const day = String(date.getDate()).padStart(2, '0')
     return `${year}-${month}-${day}`
+  },
+
+  findNextBusinessDay(restDays, holidays, maxDays) {
+    const now = new Date()
+    for (let d = 1; d <= maxDays; d++) {
+      const checkDate = new Date(now.getTime() + d * 24 * 60 * 60 * 1000)
+      const dayOfWeek = checkDate.getDay() || 7
+      const dateStr = this.formatDate(checkDate)
+      const isRestDay = restDays.includes(dayOfWeek)
+      const isHoliday = holidays.some(h => h.date === dateStr)
+      if (!isRestDay && !isHoliday) {
+        return `${checkDate.getMonth() + 1}月${checkDate.getDate()}日`
+      }
+    }
+    return '待定'
   },
 
   toggleService(e) {

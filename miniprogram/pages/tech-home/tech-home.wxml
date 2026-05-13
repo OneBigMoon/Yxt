@@ -66,7 +66,7 @@
   <van-tabbar
     active="{{activeTab}}"
     bind:change="onTabChange"
-    active-color="#1989fa"
+    active-color="#07c160"
   >
     <van-tabbar-item icon="todo-list-o" name="home">今日预约</van-tabbar-item>
     <van-tabbar-item icon="records" name="records">核销记录</van-tabbar-item>

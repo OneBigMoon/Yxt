@@ -22,8 +22,10 @@ exports.main = async (event, context) => {
             new Promise((_, reject) => setTimeout(() => reject(new Error('获取手机号超时')), 5000))
           ])
           console.log('手机号返回:', JSON.stringify(phoneRes))
-          if (phoneRes && phoneRes.errcode === 0 && phoneRes.phone_info) {
-            phoneNumber = phoneRes.phone_info.phoneNumber
+          const phoneInfo = phoneRes.phone_info || phoneRes.phoneInfo
+          const errCode = phoneRes.errcode || phoneRes.errCode
+          if (phoneRes && errCode === 0 && phoneInfo) {
+            phoneNumber = phoneInfo.phoneNumber
           }
         } catch (err) {
           console.error('获取手机号失败(不影响登录):', err.message || err)
@@ -46,6 +48,15 @@ exports.main = async (event, context) => {
           if (techRes.data.length > 0) {
             role = 'technician'
             technicianInfo = techRes.data[0]
+
+            // 绑定openid到技师记录
+            if (!technicianInfo.openid || technicianInfo.openid !== OPENID) {
+              await db.collection('technicians')
+                .doc(technicianInfo._id)
+                .update({
+                  data: { openid: OPENID, updated_at: db.serverDate() }
+                })
+            }
           }
         } catch (err) {
           console.error('查询技师失败:', err.message || err)

@@ -36,13 +36,10 @@
 
 .clinic-phone {
   font-size: 28rpx;
-  color: #1989fa;
+  color: #07c160;
   display: flex;
   align-items: center;
-}
-
-.clinic-phone van-icon {
-  margin-right: 8rpx;
+  gap: 8rpx;
 }
 
 .section {

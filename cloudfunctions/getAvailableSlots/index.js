@@ -8,6 +8,14 @@ exports.main = async (event, context) => {
   const { date, serviceIds, totalDuration } = event
 
   try {
+    // 参数校验
+    if (!date) {
+      return { code: -1, message: '请选择预约日期' }
+    }
+    if (!totalDuration || totalDuration <= 0) {
+      return { code: -1, message: '服务时长无效' }
+    }
+
     // 1. 获取营业配置
     const configRes = await db.collection('business_config').limit(1).get()
     if (configRes.data.length === 0) {
@@ -15,14 +23,23 @@ exports.main = async (event, context) => {
     }
     const config = configRes.data[0]
 
-    // 2. 检查日期是否在可预约范围内
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const targetDate = new Date(date)
-    targetDate.setHours(0, 0, 0, 0)
-    const diffDays = Math.floor((targetDate - today) / (24 * 60 * 60 * 1000))
+    // 2. 检查日期是否在可预约范围内（使用北京时间）
+    const now = new Date()
+    const bjNow = new Date(now.getTime() + 8 * 60 * 60 * 1000)
+    const todayStr = `${bjNow.getUTCFullYear()}-${String(bjNow.getUTCMonth() + 1).padStart(2, '0')}-${String(bjNow.getUTCDate()).padStart(2, '0')}`
 
-    if (diffDays < 0 || diffDays > config.max_advance_days) {
+    if (date < todayStr) {
+      return { code: -1, message: '该日期不在可预约范围内' }
+    }
+
+    // 计算相差天数（使用日期字符串比较，避免时区问题）
+    const todayParts = todayStr.split('-').map(Number)
+    const dateParts = date.split('-').map(Number)
+    const todayUtc = Date.UTC(todayParts[0], todayParts[1] - 1, todayParts[2])
+    const targetUtc = Date.UTC(dateParts[0], dateParts[1] - 1, dateParts[2])
+    const diffDays = Math.floor((targetUtc - todayUtc) / (24 * 60 * 60 * 1000))
+
+    if (diffDays > config.max_advance_days) {
       return { code: -1, message: '该日期不在可预约范围内' }
     }
 
@@ -34,8 +51,9 @@ exports.main = async (event, context) => {
       return { code: 0, data: [] }
     }
 
-    // 4. 获取该日期是周几（1-7）
-    const dayOfWeek = targetDate.getDay() || 7
+    // 4. 获取该日期是周几（1-7，周日为7）
+    const targetDateObj = new Date(date + 'T00:00:00')
+    const dayOfWeek = targetDateObj.getDay() || 7
 
     // 5. 获取该日的营业时间段
     const workHours = config.schedule && config.schedule[dayOfWeek]
@@ -82,14 +100,17 @@ exports.main = async (event, context) => {
         const startTime = minutesToTime(time)
         const endTime = minutesToTime(time + totalDuration)
 
-        // 检查该时段的已预约数
+        // 检查该时段的已预约数（前后相接不算冲突）
         let bookedCount = 0
         for (const apt of appointments) {
           const aptStart = timeToMinutes(apt.start_time)
           const aptEnd = timeToMinutes(apt.end_time)
+          const slotStart = time
+          const slotEnd = time + totalDuration
 
-          // 判断时段重叠
-          if (time < aptEnd && time + totalDuration > aptStart) {
+          // 严格重叠：新时段开始 < 已约结束 且 已约开始 < 新时段结束
+          // 前后相接（如 17:30 结束 vs 17:30 开始）不算冲突
+          if (slotStart < aptEnd && aptStart < slotEnd) {
             bookedCount++
           }
         }
@@ -97,10 +118,9 @@ exports.main = async (event, context) => {
         const remaining = techCount - bookedCount
         const available = remaining > 0
 
-        // 如果是今天，排除已过去的时段
-        if (diffDays === 0) {
-          const now = new Date()
-          const currentMinutes = now.getHours() * 60 + now.getMinutes()
+        // 如果是今天，排除已过去的时段（北京时间）
+        if (date === todayStr) {
+          const currentMinutes = bjNow.getUTCHours() * 60 + bjNow.getUTCMinutes()
           if (time <= currentMinutes) {
             continue
           }

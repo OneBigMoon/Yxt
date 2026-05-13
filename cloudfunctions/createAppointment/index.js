@@ -71,6 +71,7 @@ exports.main = async (event, context) => {
       .where({ date: date })
       .get()
     techCount -= daysOffRes.data.length
+    techCount = Math.max(techCount, 0)
 
     // 4. 检查该时段已有预约数
     const appointmentsRes = await db.collection('appointments')

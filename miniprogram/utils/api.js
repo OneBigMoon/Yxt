@@ -20,41 +20,41 @@ const callFunction = (name, data = {}) => {
 }
 
 // 用户登录
-export const login = (userInfo) => callFunction('login', userInfo)
+const login = (userInfo) => callFunction('login', userInfo)
 
 // 获取服务列表
-export const getServices = () => callFunction('getServices')
+const getServices = () => callFunction('getServices')
 
 // 获取可用时段
-export const getAvailableSlots = (data) => callFunction('getAvailableSlots', data)
+const getAvailableSlots = (data) => callFunction('getAvailableSlots', data)
 
 // 创建预约
-export const createAppointment = (data) => callFunction('createAppointment', data)
+const createAppointment = (data) => callFunction('createAppointment', data)
 
 // 取消预约
-export const cancelAppointment = (id) => callFunction('cancelAppointment', { id })
+const cancelAppointment = (id) => callFunction('cancelAppointment', { id })
 
 // 核销预约
-export const verifyAppointment = (id) => callFunction('verifyAppointment', { id })
+const verifyAppointment = (id) => callFunction('verifyAppointment', { id })
 
 // 获取我的预约列表
-export const getMyAppointments = (data) => callFunction('getMyAppointments', data)
+const getMyAppointments = (data) => callFunction('getMyAppointments', data)
 
 // 获取技师预约列表
-export const getTechAppointments = (data) => callFunction('getAppointments', data)
+const getTechAppointments = (data) => callFunction('getAppointments', data)
 
 // 获取文章列表
-export const getArticles = () => callFunction('getArticles')
+const getArticles = () => callFunction('getArticles')
 
 // 获取文章详情
-export const getArticleDetail = (id) => callFunction('getArticleDetail', { id })
+const getArticleDetail = (id) => callFunction('getArticleDetail', { id })
 
 // 获取营业配置
-export const getConfig = () => callFunction('admin', { action: 'getConfig' })
+const getConfig = () => callFunction('admin', { action: 'getConfig' })
 
-export const getHolidays = (data) => callFunction('admin', { action: 'getHolidays', data })
+const getHolidays = (data) => callFunction('admin', { action: 'getHolidays', data })
 
-export default {
+module.exports = {
   callFunction,
   login,
   getServices,

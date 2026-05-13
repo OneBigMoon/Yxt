@@ -7,14 +7,32 @@ const _ = db.command
 exports.main = async (event, context) => {
   try {
     const res = await db.collection('articles')
-      .where({
-        status: 'published'
-      })
-      .orderBy('sort', 'asc')
+      .where({ status: _.neq('deleted') })
+      .orderBy('sort_order', 'asc')
       .limit(10)
       .get()
 
-    // 格式化时间 + 字段映射
+    // 转换 cloud:// 封面图为 https
+    const cloudIds = res.data
+      .map(a => a.cover_image || a.coverUrl)
+      .filter(u => u && u.startsWith('cloud://'))
+
+    if (cloudIds.length > 0) {
+      try {
+        const urlRes = await cloud.getTempFileURL({ fileList: cloudIds })
+        const urlMap = {}
+        urlRes.fileList.forEach(f => { urlMap[f.fileID] = f.tempFileURL })
+        res.data.forEach(a => {
+          const key = a.cover_image || a.coverUrl
+          if (key && urlMap[key]) {
+            a.cover_image = urlMap[key]
+          }
+        })
+      } catch (e) {
+        console.error('转换封面图链接失败:', e.message)
+      }
+    }
+
     const articles = res.data.map(article => ({
       ...article,
       cover_image: article.cover_image || article.coverUrl || '',

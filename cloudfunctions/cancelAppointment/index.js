@@ -8,6 +8,11 @@ exports.main = async (event, context) => {
   const { id } = event
 
   try {
+    // 参数校验
+    if (!id) {
+      return { code: -1, message: '缺少预约ID' }
+    }
+
     // 查询预约
     const aptRes = await db.collection('appointments')
       .doc(id)

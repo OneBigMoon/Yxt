@@ -7,7 +7,7 @@
   justify-content: center;
   align-items: center;
   padding: 40rpx;
-  background: linear-gradient(180deg, #1989fa 0%, #4facfe 100%);
+  background: linear-gradient(180deg, #07c160 0%, #4facfe 100%);
   margin-bottom: 24rpx;
 }
 
@@ -104,10 +104,7 @@
   align-items: center;
   font-size: 26rpx;
   color: #666;
-}
-
-.apt-row van-icon {
-  margin-right: 8rpx;
+  gap: 8rpx;
 }
 
 .loading {

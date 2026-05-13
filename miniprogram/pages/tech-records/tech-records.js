@@ -1,4 +1,5 @@
 const { getTechAppointments } = require('../../utils/api')
+const { checkAuth } = require('../../utils/auth')
 
 Page({
   data: {
@@ -6,7 +7,12 @@ Page({
     loading: true
   },
 
-  onLoad() {
+  async onLoad() {
+    const userInfo = await checkAuth()
+    if (!userInfo || userInfo.role !== 'technician') {
+      wx.redirectTo({ url: '/pages/login/login' })
+      return
+    }
     this.loadRecords()
   },
 

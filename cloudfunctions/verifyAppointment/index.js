@@ -8,6 +8,11 @@ exports.main = async (event, context) => {
   const { id } = event
 
   try {
+    // 参数校验
+    if (!id) {
+      return { code: -1, message: '缺少预约ID' }
+    }
+
     // 验证是否是技师
     const techRes = await db.collection('technicians')
       .where({
@@ -79,10 +84,15 @@ exports.main = async (event, context) => {
 
 async function createCommissionRecords(appointment, technician) {
   try {
+    if (!appointment.services || appointment.services.length === 0) {
+      console.warn('预约无服务项目，跳过提成记录')
+      return
+    }
+
     // 获取服务信息
     const servicesRes = await db.collection('services')
       .where({
-        _id: db.command.in(appointment.services || [])
+        _id: db.command.in(appointment.services)
       })
       .get()
 
@@ -118,10 +128,12 @@ async function createCommissionRecords(appointment, technician) {
 }
 
 function formatDateTime(date) {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const hours = String(date.getHours()).padStart(2, '0')
-  const minutes = String(date.getMinutes()).padStart(2, '0')
+  // 转换为北京时间 (UTC+8)
+  const bj = new Date(date.getTime() + 8 * 60 * 60 * 1000)
+  const year = bj.getUTCFullYear()
+  const month = String(bj.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(bj.getUTCDate()).padStart(2, '0')
+  const hours = String(bj.getUTCHours()).padStart(2, '0')
+  const minutes = String(bj.getUTCMinutes()).padStart(2, '0')
   return `${year}-${month}-${day} ${hours}:${minutes}`
 }

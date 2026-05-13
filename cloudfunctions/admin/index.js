@@ -147,6 +147,27 @@ async function getServices() {
     .orderBy('sort_order', 'asc')
     .get()
 
+  // 转换 cloud:// 图片链接为 https 临时链接
+  const cloudIds = res.data
+    .map(s => s.image_url || s.imageUrl)
+    .filter(u => u && u.startsWith('cloud://'))
+
+  if (cloudIds.length > 0) {
+    try {
+      const urlRes = await cloud.getTempFileURL({ fileList: cloudIds })
+      const urlMap = {}
+      urlRes.fileList.forEach(f => { urlMap[f.fileID] = f.tempFileURL })
+      res.data.forEach(s => {
+        const key = s.image_url || s.imageUrl
+        if (key && urlMap[key]) {
+          s.image_url = urlMap[key]
+        }
+      })
+    } catch (e) {
+      console.error('转换图片链接失败:', e.message)
+    }
+  }
+
   return { code: 0, data: res.data }
 }
 
@@ -165,6 +186,16 @@ async function createService(data) {
 
 async function updateService(data) {
   const { id, ...updateData } = data
+  if (!id) {
+    return { code: -1, message: '缺少必要参数: id' }
+  }
+
+  // 统一图片字段为 image_url
+  if (updateData.imageUrl !== undefined) {
+    updateData.image_url = updateData.imageUrl
+    delete updateData.imageUrl
+  }
+
   await db.collection('services')
     .doc(id)
     .update({
@@ -214,6 +245,9 @@ async function createTechnician(data) {
 
 async function updateTechnician(data) {
   const { id, ...updateData } = data
+  if (!id) {
+    return { code: -1, message: '缺少必要参数: id' }
+  }
   await db.collection('technicians')
     .doc(id)
     .update({
@@ -262,6 +296,9 @@ async function getCustomers(params) {
 
 async function updateCustomer(data) {
   const { id, ...updateData } = data
+  if (!id) {
+    return { code: -1, message: '缺少必要参数: id' }
+  }
   await db.collection('users')
     .doc(id)
     .update({
@@ -275,6 +312,9 @@ async function updateCustomer(data) {
 }
 
 async function deleteCustomer(data) {
+  if (!data || !data.id) {
+    return { code: -1, message: '缺少必要参数: id' }
+  }
   await db.collection('users')
     .doc(data.id)
     .remove()
@@ -412,6 +452,9 @@ async function addHoliday(data) {
 }
 
 async function deleteHoliday(data) {
+  if (!data || !data.id) {
+    return { code: -1, message: '缺少必要参数: id' }
+  }
   await db.collection('holidays').doc(data.id).remove()
   return { code: 0, data: { message: '删除成功' } }
 }
@@ -466,6 +509,9 @@ async function addTechDayOff(data) {
 }
 
 async function deleteTechDayOff(data) {
+  if (!data || !data.id) {
+    return { code: -1, message: '缺少必要参数: id' }
+  }
   await db.collection('tech_days_off').doc(data.id).remove()
   return { code: 0, data: { message: '删除成功' } }
 }
@@ -535,7 +581,7 @@ async function getCommissionSummary(params) {
 async function getArticles() {
   const res = await db.collection('articles')
     .where({ status: _.neq('deleted') })
-    .orderBy('sort', 'asc')
+    .orderBy('sort_order', 'asc')
     .get()
 
   return { code: 0, data: res.data }
@@ -556,6 +602,9 @@ async function createArticle(data) {
 
 async function updateArticle(data) {
   const { id, ...updateData } = data
+  if (!id) {
+    return { code: -1, message: '缺少必要参数: id' }
+  }
   await db.collection('articles')
     .doc(id)
     .update({
@@ -569,6 +618,9 @@ async function updateArticle(data) {
 }
 
 async function toggleArticleStatus(data) {
+  if (!data || !data.id) {
+    return { code: -1, message: '缺少必要参数: id' }
+  }
   await db.collection('articles')
     .doc(data.id)
     .update({
@@ -584,6 +636,9 @@ async function toggleArticleStatus(data) {
 // ==================== 新增功能 ====================
 
 async function getAppointmentDetail(data) {
+  if (!data || !data.id) {
+    return { code: -1, message: '缺少必要参数: id' }
+  }
   const res = await db.collection('appointments').doc(data.id).get()
   const apt = res.data
 
@@ -637,6 +692,9 @@ async function getAppointmentDetail(data) {
 }
 
 async function toggleBlacklist(data) {
+  if (!data || !data.id) {
+    return { code: -1, message: '缺少必要参数: id' }
+  }
   await db.collection('users')
     .doc(data.id)
     .update({
@@ -650,6 +708,9 @@ async function toggleBlacklist(data) {
 }
 
 async function toggleTechnicianStatus(data) {
+  if (!data || !data.id) {
+    return { code: -1, message: '缺少必要参数: id' }
+  }
   await db.collection('technicians')
     .doc(data.id)
     .update({

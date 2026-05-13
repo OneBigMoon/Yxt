@@ -7,19 +7,27 @@ const _ = db.command
 // 定时触发器：每分钟执行一次
 exports.main = async (event, context) => {
   try {
-    // 获取当前时间
+    // 获取当前时间（北京时间 UTC+8）
     const now = new Date()
-    const today = formatDate(now)
-    const currentMinutes = now.getHours() * 60 + now.getMinutes()
+    const bjNow = new Date(now.getTime() + 8 * 60 * 60 * 1000)
+    const today = formatDateBj(bjNow)
+    const currentMinutes = bjNow.getUTCHours() * 60 + bjNow.getUTCMinutes()
 
     // 获取1小时后的时间
-    const reminderMinutes = currentMinutes + 60
+    let reminderMinutes = currentMinutes + 60
+    let reminderDate = today
+    if (reminderMinutes >= 1440) {
+      // 跨天：提醒时间在次日
+      reminderMinutes -= 1440
+      const nextDay = new Date(bjNow.getTime() + 24 * 60 * 60 * 1000)
+      reminderDate = formatDateBj(nextDay)
+    }
     const reminderTime = minutesToTime(reminderMinutes)
 
-    // 查询今天待核销的预约
+    // 查询待核销的预约
     const appointments = await db.collection('appointments')
       .where({
-        date: today,
+        date: reminderDate,
         status: 'pending',
         start_time: reminderTime
       })
@@ -54,10 +62,10 @@ exports.main = async (event, context) => {
   }
 }
 
-function formatDate(date) {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
+function formatDateBj(bjDate) {
+  const year = bjDate.getUTCFullYear()
+  const month = String(bjDate.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(bjDate.getUTCDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
 }
 

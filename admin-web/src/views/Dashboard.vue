@@ -114,6 +114,7 @@ async function loadTodayStatus() {
     todayHoliday.value = (holidays || []).find(h => h.date === today) || null
   } catch (err) {
     console.error('加载营业状态失败:', err)
+    ElMessage.error('加载营业状态失败')
   }
 }
 

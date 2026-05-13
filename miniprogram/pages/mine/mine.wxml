@@ -1,54 +1,56 @@
 <view class="mine-page">
-  <view class="user-section">
-    <view class="user-info" wx:if="{{isLoggedIn}}">
-      <image class="avatar" src="{{userInfo.avatar_url || '/images/logo.jpg'}}" mode="aspectFill"></image>
-      <view class="user-detail">
-        <text class="nickname">{{userInfo.nick_name}}</text>
-        <text class="user-id" wx:if="{{userInfo.phone}}">{{userInfo.phone}}</text>
+  <view class="header">
+    <view class="header-body" bindtap="{{isLoggedIn ? '' : 'goLogin'}}">
+      <image class="avatar" src="{{isLoggedIn ? (userInfo.avatar_url || '/images/logo.jpg') : '/images/logo.jpg'}}" mode="aspectFill"></image>
+      <view class="user-info">
+        <text class="nickname">{{isLoggedIn ? userInfo.nick_name : '立即登录'}}</text>
+        <text class="desc">{{isLoggedIn ? (maskedPhone || '') : '登录后可享受更多服务'}}</text>
       </view>
-    </view>
-    <view class="user-info" wx:else bindtap="goLogin">
-      <image class="avatar" src="/images/logo.jpg" mode="aspectFill"></image>
-      <view class="user-detail">
-        <text class="nickname">点击登录</text>
-        <text class="user-id">登录后享受更多服务</text>
-      </view>
-      <van-icon name="arrow" size="16" color="rgba(255,255,255,0.8)" />
+      <van-icon name="arrow" size="18" color="#fff" wx:if="{{!isLoggedIn}}" />
     </view>
   </view>
 
-  <view class="menu-section card">
+  <view class="menu-list">
     <view class="menu-item" bindtap="goMyAppointments">
-      <van-icon name="orders-o" size="22" color="#1989fa" />
+      <van-icon name="orders-o" size="22" color="#5DADE2" />
       <text class="menu-text">我的预约</text>
       <van-icon name="arrow" size="14" color="#ccc" />
     </view>
+
     <view class="menu-item" bindtap="openLocation">
-      <van-icon name="location-o" size="22" color="#07c160" />
+      <van-icon name="location-o" size="22" color="#5DADE2" />
       <text class="menu-text">门店导航</text>
       <van-icon name="arrow" size="14" color="#ccc" />
     </view>
+
     <view class="menu-item" bindtap="callPhone">
-      <van-icon name="phone-o" size="22" color="#ff976a" />
+      <van-icon name="phone-o" size="22" color="#5DADE2" />
       <text class="menu-text">联系门店</text>
       <van-icon name="arrow" size="14" color="#ccc" />
     </view>
   </view>
 
-  <view class="menu-section card" wx:if="{{clinicInfo.name}}">
-    <view class="shop-info">
-      <view class="shop-row">
-        <van-icon name="shop-o" size="16" color="#1989fa" />
-        <text class="shop-name">{{clinicInfo.name}}</text>
-      </view>
-      <view class="shop-row" wx:if="{{clinicInfo.address}}">
-        <van-icon name="location-o" size="16" color="#999" />
-        <text class="shop-addr">{{clinicInfo.address}}</text>
-      </view>
-      <view class="shop-row" wx:if="{{clinicInfo.business_hours}}">
-        <van-icon name="clock-o" size="16" color="#999" />
-        <text class="shop-addr">{{clinicInfo.business_hours}}</text>
-      </view>
+  <view class="menu-list" wx:if="{{clinicInfo.name}}">
+    <view class="menu-item" wx:if="{{clinicInfo.name}}">
+      <van-icon name="shop-o" size="22" color="#07c160" />
+      <text class="menu-text">{{clinicInfo.name}}</text>
+    </view>
+
+    <view class="menu-item" wx:if="{{clinicInfo.address}}" bindtap="openLocation">
+      <van-icon name="location-o" size="22" color="#999" />
+      <text class="menu-text menu-text--sub">{{clinicInfo.address}}</text>
+      <van-icon name="arrow" size="14" color="#ccc" />
+    </view>
+
+    <view class="menu-item" wx:if="{{clinicInfo.business_hours}}">
+      <van-icon name="clock-o" size="22" color="#999" />
+      <text class="menu-text menu-text--sub">{{clinicInfo.business_hours}}</text>
+    </view>
+
+    <view class="menu-item" wx:if="{{clinicInfo.phone}}" bindtap="callPhone">
+      <van-icon name="phone-o" size="22" color="#999" />
+      <text class="menu-text menu-text--sub">{{clinicInfo.phone}}</text>
+      <van-icon name="arrow" size="14" color="#ccc" />
     </view>
   </view>
 

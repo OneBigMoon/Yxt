@@ -42,22 +42,29 @@ exports.main = async (event, context) => {
     // 获取服务名称和患者信息
     const appointments = await Promise.all(res.data.map(async (apt) => {
       // 获取服务名称
-      const servicesRes = await db.collection('services')
-        .where({
-          _id: _.in(apt.services || [])
-        })
-        .get()
-
-      const serviceNames = servicesRes.data.map(s => s.name).join('、')
+      let serviceNames = ''
+      if (apt.services && apt.services.length > 0) {
+        try {
+          const servicesRes = await db.collection('services')
+            .where({ _id: _.in(apt.services) })
+            .get()
+          serviceNames = servicesRes.data.map(s => s.name).join('、')
+        } catch (e) {
+          console.error('获取服务信息失败:', e.message)
+        }
+      }
 
       // 获取患者信息
       let patientName = '未知用户'
-      const userRes = await db.collection('users')
-        .where({ openid: apt.patient_openid })
-        .get()
-
-      if (userRes.data.length > 0) {
-        patientName = userRes.data[0].nick_name || '未知用户'
+      try {
+        const userRes = await db.collection('users')
+          .where({ openid: apt.patient_openid })
+          .get()
+        if (userRes.data.length > 0) {
+          patientName = userRes.data[0].nick_name || '未知用户'
+        }
+      } catch (e) {
+        console.error('获取用户信息失败:', e.message)
       }
 
       return {

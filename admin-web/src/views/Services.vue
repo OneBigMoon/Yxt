@@ -9,9 +9,8 @@
       <el-table-column label="图片" width="80">
         <template #default="{ row }">
           <el-image
-            v-if="row.imageUrl || row.image_url"
-            :src="row.imageUrl || row.image_url"
-            :preview-src-list="[row.imageUrl || row.image_url]"
+            v-if="row.image_url"
+            :src="row.image_url"
             fit="cover"
             style="width: 50px; height: 50px; border-radius: 4px;"
           />
@@ -168,7 +167,7 @@ function editService(row) {
     default_commission: (row.default_commission || 0) / 100,
     description: row.description || '',
     sort_order: row.sort_order || 0,
-    image_url: row.imageUrl || row.image_url || ''
+    image_url: row.image_url || ''
   }
   dialogVisible.value = true
 }

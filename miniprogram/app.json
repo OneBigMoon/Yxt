@@ -8,7 +8,8 @@
     "pages/article-detail/article-detail",
     "pages/tech-home/tech-home",
     "pages/tech-records/tech-records",
-    "pages/my-appointments/my-appointments"
+    "pages/my-appointments/my-appointments",
+    "pages/profile/profile"
   ],
   "window": {
     "navigationBarBackgroundColor": "#ffffff",
@@ -18,7 +19,7 @@
   },
   "tabBar": {
     "color": "#999999",
-    "selectedColor": "#1989fa",
+    "selectedColor": "#07c160",
     "backgroundColor": "#ffffff",
     "borderStyle": "black",
     "list": [

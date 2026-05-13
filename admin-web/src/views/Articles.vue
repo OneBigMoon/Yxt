@@ -47,8 +47,9 @@
     <el-dialog
       v-model="dialogVisible"
       :title="isEdit ? '编辑文章' : '新建文章'"
-      width="800px"
+      width="900px"
       :close-on-click-modal="false"
+      @closed="destroyEditor"
     >
       <el-form :model="formData" label-width="100px">
         <el-form-item label="标题" required>
@@ -79,12 +80,21 @@
           </el-upload>
         </el-form-item>
         <el-form-item label="正文内容" required>
-          <el-input
-            v-model="formData.content"
-            type="textarea"
-            :rows="10"
-            placeholder="请输入文章正文（支持HTML）"
-          />
+          <div class="editor-wrapper">
+            <Toolbar
+              :editor="editorRef"
+              :defaultConfig="toolbarConfig"
+              :mode="'default'"
+              style="border-bottom: 1px solid #ccc;"
+            />
+            <Editor
+              v-model="formData.content"
+              :defaultConfig="editorConfig"
+              :mode="'default'"
+              style="height: 400px; overflow-y: hidden;"
+              @onCreated="handleEditorCreated"
+            />
+          </div>
         </el-form-item>
         <el-form-item label="排序">
           <el-input-number v-model="formData.sort_order" :min="0" />
@@ -102,9 +112,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, shallowRef, onBeforeUnmount, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { articleApi, uploadFile } from '../api'
+import { Editor, Toolbar } from '@wangeditor/editor-for-vue'
+import '@wangeditor/editor/dist/css/style.css'
 
 const articles = ref([])
 const dialogVisible = ref(false)
@@ -119,6 +131,46 @@ const formData = ref({
   sort_order: 0
 })
 
+// 编辑器实例
+const editorRef = shallowRef(null)
+
+const toolbarConfig = {
+  excludeKeys: ['fullScreen', 'group-video']
+}
+
+const editorConfig = {
+  placeholder: '请输入文章内容...',
+  MENU_CONF: {
+    uploadImage: {
+      customUpload: async (file, insertFn) => {
+        try {
+          const url = await uploadFile(file)
+          insertFn(url, '', '')
+        } catch (err) {
+          ElMessage.error('图片上传失败')
+        }
+      },
+      maxFileSize: 5 * 1024 * 1024,
+      allowedFileTypes: ['image/*']
+    }
+  }
+}
+
+function handleEditorCreated(editor) {
+  editorRef.value = editor
+}
+
+function destroyEditor() {
+  if (editorRef.value) {
+    editorRef.value.destroy()
+    editorRef.value = null
+  }
+}
+
+onBeforeUnmount(() => {
+  destroyEditor()
+})
+
 onMounted(() => {
   loadData()
 })
@@ -128,6 +180,7 @@ async function loadData() {
     articles.value = await articleApi.getList()
   } catch (err) {
     console.error('加载文章数据失败:', err)
+    ElMessage.error('加载文章数据失败')
   }
 }
 
@@ -271,5 +324,11 @@ function beforeCoverUpload(file) {
 .cover-uploader-icon {
   font-size: 28px;
   color: #8c939d;
+}
+
+.editor-wrapper {
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  width: 100%;
 }
 </style>

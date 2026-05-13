@@ -7,6 +7,10 @@ exports.main = async (event, context) => {
   const { id } = event
 
   try {
+    if (!id) {
+      return { code: -1, message: '缺少文章ID' }
+    }
+
     const res = await db.collection('articles')
       .doc(id)
       .get()
@@ -15,10 +19,23 @@ exports.main = async (event, context) => {
       return { code: -1, message: '文章不存在' }
     }
 
-    // 格式化时间 + 字段映射
+    // 转换 cloud:// 封面图为 https
+    const coverUrl = res.data.cover_image || res.data.coverUrl
+    let coverImage = coverUrl || ''
+    if (coverUrl && coverUrl.startsWith('cloud://')) {
+      try {
+        const urlRes = await cloud.getTempFileURL({ fileList: [coverUrl] })
+        if (urlRes.fileList[0] && urlRes.fileList[0].tempFileURL) {
+          coverImage = urlRes.fileList[0].tempFileURL
+        }
+      } catch (e) {
+        console.error('转换封面图链接失败:', e.message)
+      }
+    }
+
     const article = {
       ...res.data,
-      cover_image: res.data.cover_image || res.data.coverUrl || '',
+      cover_image: coverImage,
       created_at: formatDate(res.data.created_at || res.data.createdAt)
     }
 

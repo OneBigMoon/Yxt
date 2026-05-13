@@ -1,0 +1,89 @@
+.profile-page {
+  min-height: 100vh;
+  background: #fff;
+  padding: 60rpx 48rpx;
+}
+
+.profile-header {
+  text-align: center;
+  margin-bottom: 80rpx;
+}
+
+.profile-title {
+  display: block;
+  font-size: 44rpx;
+  font-weight: bold;
+  color: #333;
+  margin-bottom: 16rpx;
+}
+
+.profile-subtitle {
+  display: block;
+  font-size: 28rpx;
+  color: #999;
+}
+
+.profile-form {
+  margin-bottom: 80rpx;
+}
+
+.avatar-section {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 60rpx;
+}
+
+.avatar-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  line-height: 1;
+  -webkit-appearance: none;
+}
+
+.avatar-btn::after {
+  border: none;
+}
+
+.avatar-img {
+  width: 160rpx;
+  height: 160rpx;
+  border-radius: 50%;
+  border: 4rpx solid #eee;
+  margin-bottom: 16rpx;
+}
+
+.avatar-tip {
+  font-size: 24rpx;
+  color: #07c160;
+}
+
+.input-section {
+  margin-bottom: 40rpx;
+}
+
+.input-label {
+  font-size: 28rpx;
+  color: #666;
+  margin-bottom: 16rpx;
+}
+
+.nickname-input {
+  border: 2rpx solid #eee;
+  border-radius: 12rpx;
+  padding: 24rpx;
+  font-size: 30rpx;
+  background: #f8f8f8;
+}
+
+.nickname-input:focus {
+  border-color: #07c160;
+}
+
+.submit-section {
+  margin-top: 40rpx;
+}

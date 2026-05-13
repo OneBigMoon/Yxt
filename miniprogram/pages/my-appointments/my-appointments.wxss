@@ -61,6 +61,7 @@
   align-items: center;
   font-size: 26rpx;
   color: #666;
+  gap: 8rpx;
 }
 
 .loading {
