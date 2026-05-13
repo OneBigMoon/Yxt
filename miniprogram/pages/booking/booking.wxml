@@ -1,26 +1,39 @@
 <view class="booking-page">
-  <!-- 停业页面 -->
-  <view class="closure-page" wx:if="{{closureNotice}}">
+  <!-- 加载中 -->
+  <view class="loading-page" wx:if="{{pageLoading}}">
+    <van-loading type="spinner" size="40">检查预约状态...</van-loading>
+  </view>
+
+  <!-- 预约已满 -->
+  <view class="full-page" wx:elif="{{!hasAnyAvailable}}">
+    <view class="full-icon">
+      <van-icon name="warning-o" size="80" color="#ff976a" />
+    </view>
+    <text class="full-title">预约已满</text>
+    <text class="full-message">{{availabilityMessage}}</text>
+  </view>
+
+  <!-- 停业 -->
+  <view class="closure-page" wx:elif="{{closureNotice}}">
     <view class="closure-icon">
       <van-icon name="clock" size="80" color="#ff976a" />
     </view>
     <text class="closure-title">今日暂停营业</text>
     <text class="closure-reason">{{closureNotice}}</text>
-    <text class="closure-tip">请在营业时间再来预约</text>
   </view>
 
   <!-- 正常预约流程 -->
-  <block wx:if="{{!closureNotice}}">
+  <block wx:else>
     <!-- 步骤条 -->
     <view class="steps">
       <view class="step {{currentStep >= 1 ? 'active' : ''}}">
         <view class="step-num">1</view>
-        <text class="step-text">选择服务</text>
+        <text class="step-text">选择日期</text>
       </view>
       <view class="step-line {{currentStep >= 2 ? 'active' : ''}}"></view>
       <view class="step {{currentStep >= 2 ? 'active' : ''}}">
         <view class="step-num">2</view>
-        <text class="step-text">选择日期</text>
+        <text class="step-text">选择服务</text>
       </view>
       <view class="step-line {{currentStep >= 3 ? 'active' : ''}}"></view>
       <view class="step {{currentStep >= 3 ? 'active' : ''}}">
@@ -29,8 +42,47 @@
       </view>
     </view>
 
-    <!-- 步骤1：选择服务 -->
+    <!-- 步骤1：选择日期 -->
     <view class="step-content" wx:if="{{currentStep === 1}}">
+      <view class="section-title">请选择预约日期</view>
+      <view class="section-tip">灰色日期不可选（休息/停业/已满）</view>
+
+      <view class="selected-date" wx:if="{{selectedDate}}" bindtap="openCalendar">
+        <text>已选日期：{{selectedDate}}</text>
+        <text class="change-date-tip">点击修改</text>
+      </view>
+
+      <view class="date-hint" wx:if="{{!selectedDate && !showCalendar}}">
+        <van-button type="primary" plain round block bindtap="openCalendar">选择日期</van-button>
+      </view>
+
+      <van-calendar
+        show="{{showCalendar}}"
+        show-confirm="{{false}}"
+        bind:close="onCalendarClose"
+        bind:select="onCalendarDayClick"
+        min-date="{{minDate}}"
+        max-date="{{maxDate}}"
+        title="选择预约日期"
+        color="#07c160"
+        formatter="{{calendarFormatter}}"
+      />
+
+      <view class="bottom-bar">
+        <van-button
+          type="primary"
+          round
+          block
+          bindtap="nextStep"
+          disabled="{{!selectedDate}}"
+        >
+          下一步
+        </van-button>
+      </view>
+    </view>
+
+    <!-- 步骤2：选择服务 -->
+    <view class="step-content" wx:if="{{currentStep === 2}}">
       <view class="section-title">请选择服务项目（可多选）</view>
       <view class="service-list">
         <view
@@ -57,46 +109,13 @@
         </view>
       </view>
 
-      <view class="bottom-bar" wx:if="{{selectedServices.length > 0}}">
-        <view class="selected-info">
-          已选 {{selectedServices.length}} 项，总时长 {{totalDuration}} 分钟
-        </view>
-        <van-button type="primary" round bindtap="nextStep">下一步</van-button>
-      </view>
-    </view>
-
-    <!-- 步骤2：选择日期 -->
-    <view class="step-content" wx:if="{{currentStep === 2}}">
-      <view class="section-title">请选择预约日期</view>
-
-      <view class="selected-date" wx:if="{{selectedDate}}" bindtap="openCalendar">
-        <text>已选日期：{{selectedDate}}</text>
-        <text class="change-date-tip">点击修改</text>
-      </view>
-
-      <view class="date-hint" wx:if="{{!selectedDate && !showCalendar}}">
-        <van-button type="primary" plain round block bindtap="openCalendar">选择日期</van-button>
-      </view>
-
-      <van-calendar
-        show="{{showCalendar}}"
-        show-confirm="{{false}}"
-        bind:close="onCalendarClose"
-        bind:select="onCalendarDayClick"
-        min-date="{{minDate}}"
-        max-date="{{maxDate}}"
-        title="选择日期"
-        color="#07c160"
-        formatter="{{calendarFormatter}}"
-      />
-
       <view class="bottom-bar">
         <van-button plain bindtap="prevStep">上一步</van-button>
         <van-button
           type="primary"
           round
           bindtap="nextStep"
-          disabled="{{!selectedDate}}"
+          disabled="{{selectedServices.length === 0}}"
         >
           下一步
         </van-button>

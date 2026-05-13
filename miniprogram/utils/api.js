@@ -28,6 +28,9 @@ const getServices = () => callFunction('getServices')
 // 获取可用时段
 const getAvailableSlots = (data) => callFunction('getAvailableSlots', data)
 
+// 检查可预约性
+const checkAvailability = (data) => callFunction('checkAvailability', data)
+
 // 创建预约
 const createAppointment = (data) => callFunction('createAppointment', data)
 
@@ -59,6 +62,7 @@ module.exports = {
   login,
   getServices,
   getAvailableSlots,
+  checkAvailability,
   createAppointment,
   cancelAppointment,
   verifyAppointment,

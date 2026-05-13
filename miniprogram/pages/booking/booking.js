@@ -1,4 +1,4 @@
-const { getServices, getAvailableSlots, createAppointment, getConfig, getHolidays } = require('../../utils/api')
+const { getServices, getAvailableSlots, checkAvailability, createAppointment, getConfig, getHolidays } = require('../../utils/api')
 
 Page({
   data: {
@@ -15,11 +15,15 @@ Page({
     selectedSlot: null,
     bookingLoading: false,
     showSuccess: false,
-    disabledDates: [],
     restDays: [],
     holidays: [],
     calendarFormatter: null,
-    closureNotice: ''
+    closureNotice: '',
+    // 可预约性
+    pageLoading: true,
+    hasAnyAvailable: false,
+    availabilityMessage: '',
+    dateStatus: {}
   },
 
   onLoad() {
@@ -30,31 +34,54 @@ Page({
         return
       }
 
-      this.loadServices()
       this.loadConfig()
+      this.loadServices()
+      this.scanAvailability()
 
       this.setData({
         calendarFormatter: (day) => {
           const date = new Date(day.date)
-          const dayOfWeek = date.getDay() || 7
-
-          if (this.data.restDays.includes(dayOfWeek)) {
-            day.type = 'disabled'
-            day.bottomInfo = '休息'
-          }
-
           const dateStr = this.formatDate(date)
-          const holidays = this.data.holidays || []
-          const holiday = holidays.find(h => h.date === dateStr)
-          if (holiday) {
-            day.type = 'disabled'
-            day.bottomInfo = '停业'
+          const status = this.data.dateStatus[dateStr]
+
+          if (status) {
+            if (status.status === 'rest') {
+              day.type = 'disabled'
+              day.bottomInfo = '休息'
+            } else if (status.status === 'closure') {
+              day.type = 'disabled'
+              day.bottomInfo = '停业'
+            } else if (status.status === 'full') {
+              day.type = 'disabled'
+              day.bottomInfo = '约满'
+            }
+            // available: 不设置 type，保持可选
           }
 
           return day
         }
       })
     })
+  },
+
+  async scanAvailability() {
+    try {
+      const result = await checkAvailability({})
+
+      this.setData({
+        hasAnyAvailable: result.hasAnyAvailable,
+        availabilityMessage: result.message || '',
+        dateStatus: result.dateStatus || {},
+        pageLoading: false
+      })
+    } catch (err) {
+      console.error('扫描可预约日期失败:', err)
+      this.setData({
+        hasAnyAvailable: false,
+        availabilityMessage: '检查预约状态失败，请重试',
+        pageLoading: false
+      })
+    }
   },
 
   async loadServices() {
@@ -65,7 +92,6 @@ Page({
       })
     } catch (err) {
       console.error('获取服务列表失败:', err)
-      wx.showToast({ title: '加载失败', icon: 'none' })
     }
   },
 
@@ -86,40 +112,10 @@ Page({
         }
       }
 
-      const disabledDates = []
-      const now = new Date()
-      for (let d = 0; d <= maxAdvanceDays; d++) {
-        const checkDate = new Date(now.getTime() + d * 24 * 60 * 60 * 1000)
-        const dayOfWeek = checkDate.getDay() || 7
-        if (restDays.includes(dayOfWeek)) {
-          disabledDates.push(checkDate.getTime())
-        }
-      }
-
-      const holidays = holidaysData || []
-      for (const h of holidays) {
-        const hDate = new Date(h.date)
-        hDate.setHours(0, 0, 0, 0)
-        disabledDates.push(hDate.getTime())
-      }
-
-      // 检查今天是否停业
-      const today = this.formatDate(new Date())
-      const todayHoliday = holidays.find(h => h.date === today)
-      let closureNotice = ''
-      if (todayHoliday) {
-        const nextDay = this.findNextBusinessDay(restDays, holidays, maxAdvanceDays)
-        closureNotice = todayHoliday.reason
-          ? `今日停业：${todayHoliday.reason}，预计${nextDay}恢复营业`
-          : `今日停业，预计${nextDay}恢复营业`
-      }
-
       this.setData({
         maxDate,
         restDays,
-        disabledDates,
-        holidays,
-        closureNotice
+        holidays: holidaysData || []
       })
     } catch (err) {
       console.error('获取配置失败:', err)
@@ -128,19 +124,19 @@ Page({
 
   onCalendarDayClick(e) {
     const date = new Date(e.detail)
-    const dayOfWeek = date.getDay() || 7
+    const dateStr = this.formatDate(date)
+    const status = this.data.dateStatus[dateStr]
 
-    if (this.data.restDays.includes(dayOfWeek)) {
-      const dayNames = ['', '一', '二', '三', '四', '五', '六', '日']
-      wx.showToast({ title: `周${dayNames[dayOfWeek]}为休息日`, icon: 'none' })
+    if (status && status.status === 'rest') {
+      wx.showToast({ title: '该日为休息日', icon: 'none' })
       return
     }
-
-    const dateStr = this.formatDate(date)
-    const holidays = this.data.holidays || []
-    const holiday = holidays.find(h => h.date === dateStr)
-    if (holiday) {
-      wx.showToast({ title: holiday.reason || '当日停业', icon: 'none' })
+    if (status && status.status === 'closure') {
+      wx.showToast({ title: status.reason || '当日停业', icon: 'none' })
+      return
+    }
+    if (status && status.status === 'full') {
+      wx.showToast({ title: '该日预约已满', icon: 'none' })
       return
     }
 
@@ -157,21 +153,6 @@ Page({
     return `${year}-${month}-${day}`
   },
 
-  findNextBusinessDay(restDays, holidays, maxDays) {
-    const now = new Date()
-    for (let d = 1; d <= maxDays; d++) {
-      const checkDate = new Date(now.getTime() + d * 24 * 60 * 60 * 1000)
-      const dayOfWeek = checkDate.getDay() || 7
-      const dateStr = this.formatDate(checkDate)
-      const isRestDay = restDays.includes(dayOfWeek)
-      const isHoliday = holidays.some(h => h.date === dateStr)
-      if (!isRestDay && !isHoliday) {
-        return `${checkDate.getMonth() + 1}月${checkDate.getDate()}日`
-      }
-    }
-    return '待定'
-  },
-
   toggleService(e) {
     const index = e.currentTarget.dataset.index
     const services = this.data.services.map((s, i) =>
@@ -185,45 +166,38 @@ Page({
   },
 
   nextStep() {
-    if (this.data.currentStep === 1 && this.data.selectedServices.length === 0) {
-      wx.showToast({ title: '请至少选择一个服务项目', icon: 'none' })
+    // 步骤1：必须选日期
+    if (this.data.currentStep === 1) {
+      if (!this.data.selectedDate) {
+        wx.showToast({ title: '请选择预约日期', icon: 'none' })
+        return
+      }
+      this.setData({ currentStep: 2 })
       return
     }
 
-    const next = this.data.currentStep + 1
-    const update = { currentStep: next }
-
-    if (next === 2) {
-      update.showCalendar = true
-    }
-
-    this.setData(update, () => {
-      if (next === 3) {
-        this.loadTimeSlots()
+    // 步骤2：必须选服务
+    if (this.data.currentStep === 2) {
+      if (this.data.selectedServices.length === 0) {
+        wx.showToast({ title: '请至少选择一个服务项目', icon: 'none' })
+        return
       }
-    })
+      this.setData({ currentStep: 3 })
+      this.loadTimeSlots()
+      return
+    }
+  },
+
+  prevStep() {
+    if (this.data.currentStep === 2) {
+      this.setData({ currentStep: 1, selectedDate: '', selectedSlot: null })
+    } else if (this.data.currentStep === 3) {
+      this.setData({ currentStep: 2, selectedSlot: null, timeSlots: [] })
+    }
   },
 
   openCalendar() {
     this.setData({ showCalendar: true })
-  },
-
-  prevStep() {
-    this.setData({
-      currentStep: this.data.currentStep - 1,
-      selectedSlot: null
-    })
-  },
-
-  onDateConfirm(e) {
-    const date = new Date(e.detail)
-    const dateStr = this.formatDate(date)
-
-    this.setData({
-      selectedDate: dateStr,
-      showCalendar: false,
-      selectedSlot: null
-    })
   },
 
   onCalendarClose() {
