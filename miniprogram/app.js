@@ -2,8 +2,7 @@ App({
   globalData: {
     userInfo: null,
     role: null,
-    openid: null,
-    lastBlacklistCheck: 0
+    openid: null
   },
 
   onLaunch() {
@@ -17,61 +16,130 @@ App({
     })
   },
 
-  onShow() {
-    this.checkBlacklist()
-  },
-
-  // 全局黑名单检查（每5分钟最多检查一次）
-  async checkBlacklist() {
-    const userInfo = wx.getStorageSync('userInfo')
-    if (!userInfo) return
-
-    const now = Date.now()
-    if (now - this.globalData.lastBlacklistCheck < 5 * 60 * 1000) return
-    this.globalData.lastBlacklistCheck = now
-
-    try {
-      const res = await new Promise((resolve, reject) => {
-        wx.cloud.callFunction({
-          name: 'login',
-          data: { type: 'login' },
-          success: res => resolve(res.result),
-          fail: err => reject(err)
-        })
-      })
-
-      if (res && res.code === 0 && res.data && res.data.is_blacklisted) {
-        wx.removeStorageSync('userInfo')
-        this.globalData.userInfo = null
-        this.globalData.role = null
-        this.globalData.openid = null
-
-        wx.showModal({
-          title: '账号异常',
-          content: '您的账号注册信息有误，请联系门店处理',
-          showCancel: false,
-          confirmText: '知道了',
-          success: () => {
-            wx.redirectTo({ url: '/pages/login/login' })
-          }
-        })
+  onShow(options) {
+    const sessionId = this._getScanLoginSessionId(options)
+    if (sessionId) {
+      const currentPages = getCurrentPages()
+      const currentRoute = currentPages.length ? currentPages[currentPages.length - 1].route : ''
+      if (currentRoute === 'pages/scan-confirm/scan-confirm') {
+        return
       }
-    } catch (err) {
-      // 检查失败不影响正常使用
+
+      wx.navigateTo({
+        url: `/pages/scan-confirm/scan-confirm?session_id=${sessionId}`
+      })
     }
   },
 
-  checkLogin() {
-    return new Promise((resolve, reject) => {
-      const userInfo = wx.getStorageSync('userInfo')
-      if (userInfo) {
-        this.globalData.userInfo = userInfo
-        this.globalData.role = userInfo.role
-        this.globalData.openid = userInfo.openid
-        resolve(userInfo)
-      } else {
-        reject('未登录')
-      }
-    })
+  _getScanLoginSessionId(options = {}) {
+    if (options.scene) {
+      return this._extractSessionId(this._safeDecode(options.scene))
+    }
+
+    if (options.query && options.query.session_id) {
+      return this._extractSessionId(this._safeDecode(options.query.session_id))
+    }
+
+    if (options.path) {
+      return this._extractSessionId(this._safeDecode(options.path))
+    }
+
+    if (options.query && options.query.q) {
+      return this._extractSessionIdFromLink(this._safeDecode(options.query.q))
+    }
+
+    return ''
+  },
+
+  _extractSessionId(value = '') {
+    const text = String(value || '').trim()
+    if (!text) {
+      return ''
+    }
+
+    const plainMatch = text.match(/^[a-z0-9]{32}$/i)?.[0]
+    if (plainMatch) {
+      return plainMatch
+    }
+
+    return this._extractSessionIdFromLink(text)
+  },
+
+  _extractSessionIdFromLink(link = '') {
+    const match = String(link || '').match(/[?&]session_id=([^&#]+)/)
+    return match ? decodeURIComponent(match[1]) : ''
+  },
+
+  _safeDecode(value) {
+    try {
+      return decodeURIComponent(String(value || ''))
+    } catch {
+      return String(value || '')
+    }
+  },
+
+  onError(error) {
+    const isKnownDevtoolsTimeout = this._isKnownDevtoolsTimeoutError(error)
+    if (isKnownDevtoolsTimeout) {
+      console.warn('[global onError] 已识别开发者工具启动超时噪音')
+      return
+    }
+
+    if (error && error.message) {
+      console.error('[global onError]', error.message, {
+        stack: error.stack,
+        isKnownDevtoolsTimeout
+      })
+      return
+    }
+
+    console.error('[global onError]', error, { isKnownDevtoolsTimeout })
+  },
+
+  onUnhandledRejection(reason) {
+    const normalizedReason = reason && reason.reason ? reason.reason : reason
+    const isKnownDevtoolsTimeout = this._isKnownDevtoolsTimeoutError(normalizedReason)
+
+    if (isKnownDevtoolsTimeout) {
+      console.warn('[global onUnhandledRejection] 已识别开发者工具启动超时噪音')
+      return
+    }
+
+    if (normalizedReason && normalizedReason.message) {
+      console.error('[global onUnhandledRejection]', normalizedReason.message, {
+        stack: normalizedReason.stack,
+        isKnownDevtoolsTimeout,
+        reason: normalizedReason
+      })
+    } else {
+      console.error('[global onUnhandledRejection]', normalizedReason, { isKnownDevtoolsTimeout })
+    }
+  },
+
+  _isKnownDevtoolsTimeoutError(error) {
+    if (!error) {
+      return false
+    }
+
+    const message = this._getErrorMessage(error)
+    if (!message.includes('timeout')) {
+      return false
+    }
+
+    const stack = `${error.stack || ''}`
+    return stack.includes('WAServiceMainContext')
+  },
+
+  _getErrorMessage(error) {
+    if (!error) {
+      return ''
+    }
+    if (error.message) {
+      return error.message
+    }
+    if (error.errMsg) {
+      return error.errMsg
+    }
+    return `${error}`
   }
 })

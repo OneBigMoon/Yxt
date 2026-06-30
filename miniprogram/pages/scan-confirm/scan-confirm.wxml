@@ -1,0 +1,26 @@
+<view class="confirm-page">
+  <view class="confirm-card">
+    <van-icon
+      name="{{errorMessage ? 'close' : confirmed ? 'checked' : 'scan'}}"
+      size="64"
+      color="{{errorMessage ? '#ee0a24' : '#07c160'}}"
+    />
+    <text class="title">{{pageTitle}}</text>
+    <text class="desc">{{pageDesc}}</text>
+
+    <van-loading wx:if="{{loading}}" color="#07c160" size="32px">自动确认中...</van-loading>
+
+    <text class="success-message" wx:if="{{confirmed}}">{{resultMessage}}</text>
+    <text class="error-message" wx:if="{{errorMessage}}">{{errorMessage}}</text>
+
+    <button
+      wx:if="{{errorMessage}}"
+      class="confirm-btn"
+      type="primary"
+      loading="{{loading}}"
+      bindtap="onConfirm"
+    >
+      重试
+    </button>
+  </view>
+</view>

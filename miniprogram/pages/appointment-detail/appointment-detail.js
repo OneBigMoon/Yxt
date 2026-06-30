@@ -9,6 +9,7 @@ Page({
 
   onLoad(options) {
     if (!options.id) {
+      this.setData({ loading: false })
       wx.showToast({ title: '预约不存在', icon: 'none' })
       setTimeout(() => {
         wx.navigateBack()
@@ -29,6 +30,7 @@ Page({
           loading: false
         })
       } else {
+        this.setData({ loading: false })
         wx.showToast({ title: '预约不存在', icon: 'none' })
         setTimeout(() => {
           wx.navigateBack()

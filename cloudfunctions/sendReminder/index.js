@@ -3,6 +3,7 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
 const db = cloud.database()
 const _ = db.command
+const APPOINTMENT_REMINDER_TEMPLATE_ID = process.env.SUBSCRIBE_TEMPLATE_APPOINTMENT_REMINDER || ''
 
 // 定时触发器：每分钟执行一次
 exports.main = async (event, context) => {
@@ -36,11 +37,16 @@ exports.main = async (event, context) => {
     console.log(`找到 ${appointments.data.length} 个需要提醒的预约`)
 
     // 发送提醒通知
+    if (!APPOINTMENT_REMINDER_TEMPLATE_ID) {
+      console.warn('未配置预约提醒订阅消息模板，跳过提醒通知')
+      return { code: 0, data: { count: 0, skipped: appointments.data.length } }
+    }
+
     for (const apt of appointments.data) {
       try {
         await cloud.openapi.subscribeMessage.send({
           touser: apt.patient_openid,
-          templateId: 'your-reminder-template-id', // 替换为你的提醒模板ID
+          templateId: APPOINTMENT_REMINDER_TEMPLATE_ID,
           data: {
             thing1: { value: '预约提醒' },
             time2: { value: `${apt.date} ${apt.start_time}` },

@@ -1,4 +1,5 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
+import { hasRoutePermission } from '../utils/permissions'
 
 const routes = [
   {
@@ -60,6 +61,12 @@ const routes = [
     name: 'Articles',
     component: () => import('../views/Articles.vue'),
     meta: { title: '健康小知识' }
+  },
+  {
+    path: '/admin-users',
+    name: 'AdminUsers',
+    component: () => import('../views/AdminUsers.vue'),
+    meta: { title: '管理员账号' }
   }
 ]
 
@@ -70,12 +77,18 @@ const router = createRouter({
 
 // 路由守卫
 router.beforeEach((to, from, next) => {
-  const isLoggedIn = sessionStorage.getItem('admin_loggedin') === 'true'
+  const hasLoginFlag = sessionStorage.getItem('admin_loggedin') === 'true'
+  const hasCredential = Boolean(
+    sessionStorage.getItem('admin_token') || sessionStorage.getItem('admin_password')
+  )
+  const isLoggedIn = hasLoginFlag && hasCredential
 
   if (to.meta.public) {
     next()
   } else if (!isLoggedIn) {
     next('/login')
+  } else if (!hasRoutePermission(to.path)) {
+    next('/')
   } else {
     next()
   }

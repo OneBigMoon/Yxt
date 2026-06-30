@@ -2,7 +2,15 @@ const cloud = require('wx-server-sdk')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
 const db = cloud.database()
-const _ = db.command
+
+async function safeQuery(promise, label) {
+  try {
+    return await promise
+  } catch (err) {
+    console.error(`${label} 查询失败:`, err.message || err)
+    return null
+  }
+}
 
 exports.main = async (event, context) => {
   const { date, serviceIds, totalDuration } = event
@@ -22,6 +30,14 @@ exports.main = async (event, context) => {
       return { code: -1, message: '营业配置不存在' }
     }
     const config = configRes.data[0]
+    if (!config || !config.schedule) {
+      return { code: -1, message: '营业配置异常' }
+    }
+
+    const targetDate = parseYmdToDate(date)
+    if (!targetDate) {
+      return { code: -1, message: '日期格式不正确' }
+    }
 
     // 2. 检查日期是否在可预约范围内（使用北京时间）
     const now = new Date()
@@ -43,35 +59,60 @@ exports.main = async (event, context) => {
       return { code: -1, message: '该日期不在可预约范围内' }
     }
 
+    // 并行查询：休业日、技师、当天技师休假、当天预约
+    const [holidaysRes, techRes, daysOffRes, appointmentsRes] = await Promise.all([
+      safeQuery(
+        db.collection('holidays')
+          .where({ date: date })
+          .get(),
+        '休业日'
+      ),
+      safeQuery(
+        db.collection('technicians')
+          .where({ status: 'active' })
+          .get(),
+        '技师'
+      ),
+      safeQuery(
+        db.collection('tech_days_off')
+          .where({ date: date })
+          .get(),
+        '技师休假'
+      ),
+      safeQuery(
+        db.collection('appointments')
+          .where({
+            date: date,
+            status: 'pending'
+          })
+          .get(),
+        '预约'
+      )
+    ])
+
     // 3. 检查是否是休班日
-    const holidaysRes = await db.collection('holidays')
-      .where({ date: date })
-      .get()
-    if (holidaysRes.data.length > 0) {
+    const holidays = (holidaysRes && holidaysRes.data) ? holidaysRes.data : []
+    if (holidays.length > 0) {
       return { code: 0, data: [] }
     }
 
     // 4. 获取该日期是周几（1-7，周日为7）
-    const targetDateObj = new Date(date + 'T00:00:00')
-    const dayOfWeek = targetDateObj.getDay() || 7
+    const targetDateObj = targetDate
+    const dayOfWeek = targetDateObj.getUTCDay() || 7
 
     // 5. 获取该日的营业时间段
     const workHours = config.schedule && config.schedule[dayOfWeek]
-    if (!workHours || workHours.length === 0) {
+    if (!Array.isArray(workHours) || workHours.length === 0) {
       return { code: 0, data: [] }
     }
 
     // 6. 获取当天上班技师数
-    const techRes = await db.collection('technicians')
-      .where({ status: 'active' })
-      .get()
-    let techCount = techRes.data.length
+    const techResData = (techRes && techRes.data) ? techRes.data : []
+    let techCount = techResData.length
 
     // 减去当天休假的技师
-    const daysOffRes = await db.collection('tech_days_off')
-      .where({ date: date })
-      .get()
-    techCount -= daysOffRes.data.length
+    const daysOffResData = (daysOffRes && daysOffRes.data) ? daysOffRes.data : []
+    techCount -= daysOffResData.length
     techCount = Math.max(techCount, 0)
 
     if (techCount === 0) {
@@ -79,22 +120,19 @@ exports.main = async (event, context) => {
     }
 
     // 7. 获取该日所有已有预约（pending状态）
-    const appointmentsRes = await db.collection('appointments')
-      .where({
-        date: date,
-        status: 'pending'
-      })
-      .get()
-
-    const appointments = appointmentsRes.data
+    const appointmentsResData = (appointmentsRes && appointmentsRes.data) ? appointmentsRes.data : []
+    const appointments = appointmentsResData
 
     // 8. 生成候选时段
     const slotInterval = config.slot_interval || 30
     const slots = []
 
     for (const period of workHours) {
-      const periodStart = timeToMinutes(period.start)
-      const periodEnd = timeToMinutes(period.end)
+      const periodStart = timeToMinutes(period && period.start)
+      const periodEnd = timeToMinutes(period && period.end)
+      if (periodStart === null || periodEnd === null || periodStart >= periodEnd) {
+        continue
+      }
 
       for (let time = periodStart; time + totalDuration <= periodEnd; time += slotInterval) {
         const startTime = minutesToTime(time)
@@ -103,8 +141,14 @@ exports.main = async (event, context) => {
         // 检查该时段的已预约数（前后相接不算冲突）
         let bookedCount = 0
         for (const apt of appointments) {
+          if (!apt || !apt.start_time || !apt.end_time) {
+            continue
+          }
           const aptStart = timeToMinutes(apt.start_time)
           const aptEnd = timeToMinutes(apt.end_time)
+          if (aptStart === null || aptEnd === null) {
+            continue
+          }
           const slotStart = time
           const slotEnd = time + totalDuration
 
@@ -143,7 +187,13 @@ exports.main = async (event, context) => {
 
 // 时间字符串转分钟数
 function timeToMinutes(timeStr) {
+  if (typeof timeStr !== 'string') {
+    return null
+  }
   const [hours, minutes] = timeStr.split(':').map(Number)
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return null
+  }
   return hours * 60 + minutes
 }
 
@@ -152,4 +202,22 @@ function minutesToTime(minutes) {
   const hours = Math.floor(minutes / 60)
   const mins = minutes % 60
   return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`
+}
+
+function parseYmdToDate(dateStr) {
+  if (typeof dateStr !== 'string') {
+    return null
+  }
+
+  const parts = dateStr.split('-').map(Number)
+  if (parts.length !== 3) {
+    return null
+  }
+
+  const [year, month, day] = parts
+  if (!year || !month || !day) {
+    return null
+  }
+
+  return new Date(Date.UTC(year, month - 1, day))
 }

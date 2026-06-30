@@ -1,0 +1,12 @@
+{
+  "envId": "cloud1-4gvszpobf92abfb6",
+  "functionRoot": ".",
+  "functions": [
+    {
+      "name": "admin",
+      "handler": "index.main",
+      "runtime": "Nodejs18.15",
+      "timeout": 15
+    }
+  ]
+}

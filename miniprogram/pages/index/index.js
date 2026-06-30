@@ -13,24 +13,39 @@ Page({
   },
 
   onShow() {
-    this.loadData()
+    this.loadData().catch((err) => {
+      console.error('[首页] onShow 触发 loadData 失败:', err)
+    })
   },
 
   onPullDownRefresh() {
     this.loadData().then(() => {
       wx.stopPullDownRefresh()
+    }).catch((err) => {
+      wx.stopPullDownRefresh()
+      console.error('[首页] 下拉刷新 loadData 失败:', err)
     })
   },
 
   async loadData() {
     this.setData({ loading: true, closureNotice: '' })
+    const startTs = Date.now()
+    let config = {}
+    let articles = []
+    let holidays = []
 
     try {
-      const [config, articles, holidays] = await Promise.all([
-        this.loadConfig(),
-        this.loadArticles(),
-        this.loadHolidays()
-      ])
+      const configStart = Date.now()
+      config = await this.loadConfig()
+      console.log(`[首页] loadConfig 耗时: ${Date.now() - configStart}ms`)
+
+      const articleStart = Date.now()
+      articles = await this.loadArticles()
+      console.log(`[首页] getArticles 耗时: ${Date.now() - articleStart}ms`)
+
+      const holidaysStart = Date.now()
+      holidays = await this.loadHolidays()
+      console.log(`[首页] getHolidays 耗时: ${Date.now() - holidaysStart}ms`)
 
       let closureNotice = ''
       const today = this.formatDate(new Date())
@@ -48,8 +63,15 @@ Page({
         articles: articles || [],
         loading: false
       })
+      console.log(`[首页] loadData 总耗时: ${Date.now() - startTs}ms`)
     } catch (err) {
       console.error('加载数据失败:', err)
+      console.error('[首页] loadData 失败节点数据:', {
+        configLoaded: Boolean(config),
+        articlesLoaded: Array.isArray(articles),
+        holidaysLoaded: Array.isArray(holidays),
+        usedMs: Date.now() - startTs
+      })
       this.setData({ loading: false, closureNotice: '' })
     }
   },

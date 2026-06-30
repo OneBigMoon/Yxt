@@ -4,24 +4,35 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 const _ = db.command
 
+async function safeQuery(promise, label) {
+  try {
+    return await promise
+  } catch (err) {
+    console.error(`${label} 查询失败:`, err.message || err)
+    return null
+  }
+}
+
 exports.main = async (event, context) => {
-  const { totalDuration } = event
   const { OPENID } = cloud.getWXContext()
+  const { totalDuration } = event
 
   try {
     // 0. 检查是否被拉黑
-    if (OPENID) {
-      const userRes = await db.collection('users')
+    const userRes = await safeQuery(
+      db.collection('users')
         .where({ openid: OPENID })
-        .get()
-      if (userRes.data.length > 0 && userRes.data[0].is_blacklisted) {
-        return {
-          code: 0,
-          data: {
-            hasAnyAvailable: false,
-            dateStatus: {},
-            message: '您的账号注册信息有误，请联系门店'
-          }
+        .get(),
+      '用户'
+    )
+
+    if (userRes && userRes.data.length > 0 && userRes.data[0].is_blacklisted) {
+      return {
+        code: 0,
+        data: {
+          hasAnyAvailable: false,
+          dateStatus: {},
+          message: '您的账号注册信息有误，请联系门店'
         }
       }
     }
@@ -32,51 +43,63 @@ exports.main = async (event, context) => {
       return { code: -1, message: '营业配置不存在' }
     }
     const config = configRes.data[0]
+
+    // 2. 获取基本信息
     const maxDays = config.max_advance_days || 14
     const slotInterval = config.slot_interval || 30
 
-    // 2. 获取北京时间
     const now = new Date()
     const bjNow = new Date(now.getTime() + 8 * 60 * 60 * 1000)
     const currentMinutes = bjNow.getUTCHours() * 60 + bjNow.getUTCMinutes()
 
-    // 3. 获取所有停业日
-    const holidaysRes = await db.collection('holidays').get()
-    const holidayMap = {}
-    for (const h of (holidaysRes.data || [])) {
-      holidayMap[h.date] = h.reason || '停业'
-    }
-
-    // 4. 获取技师数量
-    const techRes = await db.collection('technicians')
-      .where({ status: 'active' })
-      .get()
-    const techCount = techRes.data.length
-
-    // 5. 获取所有技师休假
-    const daysOffRes = await db.collection('tech_days_off').get()
-    const daysOffMap = {}
-    for (const d of (daysOffRes.data || [])) {
-      daysOffMap[d.date] = (daysOffMap[d.date] || 0) + 1
-    }
-
-    // 6. 获取所有未来预约
     const todayStr = formatDate(bjNow)
     const endDate = new Date(bjNow.getTime() + maxDays * 24 * 60 * 60 * 1000)
     const endStr = formatDate(endDate)
 
-    let allAppointments = []
-    try {
-      const aptRes = await db.collection('appointments')
-        .where({
-          date: _.gte(todayStr).and(_.lte(endStr)),
-          status: 'pending'
-        })
-        .get()
-      allAppointments = aptRes.data || []
-    } catch (e) {
-      // 如果查询失败，继续但不考虑已有预约
-      console.error('获取预约数据失败:', e.message)
+    // 3. 并发查询：节假日、技师、技师休假、当前待预约
+    const [holidayQueryRes, techRes, daysOffRes, aptRes] = await Promise.all([
+      safeQuery(
+        db.collection('holidays').get(),
+        '休业日'
+      ),
+      safeQuery(
+        db.collection('technicians')
+          .where({ status: 'active' })
+          .get(),
+        '技师'
+      ),
+      safeQuery(
+        db.collection('tech_days_off').get(),
+        '技师休假'
+      ),
+      totalDuration
+        ? safeQuery(
+          db.collection('appointments')
+            .where({
+              date: _.gte(todayStr).and(_.lte(endStr)),
+              status: 'pending'
+            })
+            .get(),
+          '预约'
+        )
+        : Promise.resolve({ data: [] })
+    ])
+
+    const holidaysRes = (holidayQueryRes && holidayQueryRes.data) ? holidayQueryRes.data : []
+    const holidaysMap = {}
+    holidaysRes.forEach((h) => {
+      holidaysMap[h.date] = h.reason || '停业'
+    })
+
+    const techResData = (techRes && techRes.data) ? techRes.data : []
+    const daysOffResData = (daysOffRes && daysOffRes.data) ? daysOffRes.data : []
+    const allAppointments = (aptRes && aptRes.data) ? aptRes.data : []
+
+    // 4. 获取技师数量
+    const techCount = techResData.length
+    const daysOffMap = {}
+    for (const d of daysOffResData) {
+      daysOffMap[d.date] = (daysOffMap[d.date] || 0) + 1
     }
 
     // 按日期分组预约
@@ -86,7 +109,7 @@ exports.main = async (event, context) => {
       appointmentsByDate[apt.date].push(apt)
     }
 
-    // 7. 逐日检查状态
+    // 5. 逐日检查状态
     const dateStatus = {}
     let hasAnyAvailable = false
 
@@ -95,15 +118,15 @@ exports.main = async (event, context) => {
       const dateStr = formatDate(checkDate)
 
       // 停业日
-      if (holidayMap[dateStr]) {
-        dateStatus[dateStr] = { status: 'closure', reason: holidayMap[dateStr] }
+      if (holidaysMap[dateStr]) {
+        dateStatus[dateStr] = { status: 'closure', reason: holidaysMap[dateStr] }
         continue
       }
 
       // 休息日
       const dayOfWeek = checkDate.getUTCDay() || 7
       const workHours = config.schedule && config.schedule[dayOfWeek]
-      if (!workHours || workHours.length === 0) {
+      if (!Array.isArray(workHours) || workHours.length === 0) {
         dateStatus[dateStr] = { status: 'rest' }
         continue
       }
@@ -121,8 +144,11 @@ exports.main = async (event, context) => {
       let hasSlot = false
 
       for (const period of workHours) {
-        const periodStart = timeToMinutes(period.start)
-        const periodEnd = timeToMinutes(period.end)
+        const periodStart = timeToMinutes(period && period.start)
+        const periodEnd = timeToMinutes(period && period.end)
+        if (periodStart === null || periodEnd === null || periodStart >= periodEnd) {
+          continue
+        }
 
         for (let time = periodStart; time + minDuration <= periodEnd; time += slotInterval) {
           // 今天跳过已过去的时段
@@ -130,8 +156,14 @@ exports.main = async (event, context) => {
 
           let bookedCount = 0
           for (const apt of appointments) {
+            if (!apt || !apt.start_time || !apt.end_time) {
+              continue
+            }
             const aptStart = timeToMinutes(apt.start_time)
             const aptEnd = timeToMinutes(apt.end_time)
+            if (aptStart === null || aptEnd === null) {
+              continue
+            }
             if (time < aptEnd && aptStart < time + minDuration) {
               bookedCount++
             }
@@ -168,7 +200,13 @@ exports.main = async (event, context) => {
 }
 
 function timeToMinutes(timeStr) {
+  if (typeof timeStr !== 'string') {
+    return null
+  }
   const [hours, minutes] = timeStr.split(':').map(Number)
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return null
+  }
   return hours * 60 + minutes
 }
 

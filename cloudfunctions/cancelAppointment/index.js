@@ -2,6 +2,7 @@ const cloud = require('wx-server-sdk')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
 const db = cloud.database()
+const APPOINTMENT_CANCELLED_TEMPLATE_ID = process.env.SUBSCRIBE_TEMPLATE_APPOINTMENT_CANCELLED || ''
 
 exports.main = async (event, context) => {
   const { OPENID } = cloud.getWXContext()
@@ -46,15 +47,19 @@ exports.main = async (event, context) => {
 
     // 发送取消通知
     try {
-      await cloud.openapi.subscribeMessage.send({
-        touser: OPENID,
-        templateId: 'your-template-id', // 替换为你的模板ID
-        data: {
-          thing1: { value: '预约取消' },
-          time2: { value: `${appointment.date} ${appointment.start_time}` },
-          thing3: { value: '已取消预约' }
-        }
-      })
+      if (APPOINTMENT_CANCELLED_TEMPLATE_ID) {
+        await cloud.openapi.subscribeMessage.send({
+          touser: OPENID,
+          templateId: APPOINTMENT_CANCELLED_TEMPLATE_ID,
+          data: {
+            thing1: { value: '预约取消' },
+            time2: { value: `${appointment.date} ${appointment.start_time}` },
+            thing3: { value: '已取消预约' }
+          }
+        })
+      } else {
+        console.warn('未配置预约取消订阅消息模板，跳过通知')
+      }
     } catch (notifyErr) {
       console.error('发送通知失败:', notifyErr)
     }

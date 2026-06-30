@@ -89,6 +89,9 @@
 - `tech_days_off` - 技师休假表
 - `articles` - 文章表
 - `commission_records` - 提成记录表
+- `login_sessions` - 扫码登录会话表（5 分钟有效）
+- `admin_sessions` - 管理后台登录态 token 表（24 小时有效）
+- `admin_users` - 扫码登录白名单（OpenID）
 
 ### 4. 管理后台部署
 
@@ -99,7 +102,43 @@
 5. 将 `dist` 目录上传到云开发静态网站托管
 6. **重要：** 在云开发控制台确认已开启匿名登录（管理后台 H5 端通过匿名登录调用云函数）
 
-### 5. 订阅消息配置
+### 5. 管理后台扫码登录配置
+
+管理后台的登录/绑定二维码由 `admin` 云函数生成真正的微信小程序码，扫码后直接进入：
+
+```
+pages/scan-confirm/scan-confirm
+```
+
+小程序端进入确认页后会自动调用 `confirmLoginSession`，成功后直接提示登录确认或微信绑定成功。
+
+配置步骤：
+
+1. 在微信公众平台获取小程序 `AppID` 和 `AppSecret`
+2. 将下面环境变量配置到 `admin` 云函数，不要写进前端代码
+
+```
+WECHAT_APPID=你的 AppID
+WECHAT_APPSECRET=你的 AppSecret
+WECHAT_MINIPROGRAM_QR_ENV_VERSION=trial
+```
+
+3. 测试体验版时使用 `trial`
+4. 小程序正式发布后，将 `WECHAT_MINIPROGRAM_QR_ENV_VERSION` 改为 `release`
+5. 部署 `admin` 云函数
+6. 重新构建并部署管理后台
+
+> 管理后台“管理员账号”页可创建账号、设置角色并生成绑定微信的小程序码。绑定后，该微信可用于扫码登录后台。
+
+需要额外创建集合：
+
+- `login_sessions`：临时扫码登录会话，二维码 5 分钟有效
+- `admin_sessions`：管理后台登录态，默认 24 小时有效
+- `admin_users`：管理员账号、角色和绑定微信 OpenID
+
+小程序码通过 `scene` 传递 `session_id`。确认时云函数会校验扫码微信是否已绑定到启用的管理员账号，通过后给管理端签发后台登录 token。
+
+### 6. 订阅消息配置
 
 1. 在微信公众平台申请订阅消息模板
 2. 模板需要包含：预约成功通知、预约取消通知、核销完成通知、预约提醒通知

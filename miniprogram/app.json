@@ -9,7 +9,8 @@
     "pages/tech-home/tech-home",
     "pages/tech-records/tech-records",
     "pages/my-appointments/my-appointments",
-    "pages/profile/profile"
+    "pages/profile/profile",
+    "pages/scan-confirm/scan-confirm"
   ],
   "window": {
     "navigationBarBackgroundColor": "#ffffff",

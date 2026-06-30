@@ -2,6 +2,7 @@ const cloud = require('wx-server-sdk')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
 const db = cloud.database()
+const APPOINTMENT_VERIFIED_TEMPLATE_ID = process.env.SUBSCRIBE_TEMPLATE_APPOINTMENT_VERIFIED || ''
 
 exports.main = async (event, context) => {
   const { OPENID } = cloud.getWXContext()
@@ -62,15 +63,19 @@ exports.main = async (event, context) => {
 
     // 发送核销完成通知
     try {
-      await cloud.openapi.subscribeMessage.send({
-        touser: appointment.patient_openid,
-        templateId: 'your-template-id', // 替换为你的模板ID
-        data: {
-          thing1: { value: '核销完成' },
-          time2: { value: formatDateTime(new Date()) },
-          thing3: { value: '感谢您的光临' }
-        }
-      })
+      if (APPOINTMENT_VERIFIED_TEMPLATE_ID) {
+        await cloud.openapi.subscribeMessage.send({
+          touser: appointment.patient_openid,
+          templateId: APPOINTMENT_VERIFIED_TEMPLATE_ID,
+          data: {
+            thing1: { value: '核销完成' },
+            time2: { value: formatDateTime(new Date()) },
+            thing3: { value: '感谢您的光临' }
+          }
+        })
+      } else {
+        console.warn('未配置核销完成订阅消息模板，跳过通知')
+      }
     } catch (notifyErr) {
       console.error('发送通知失败:', notifyErr)
     }

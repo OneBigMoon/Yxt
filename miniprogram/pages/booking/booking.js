@@ -29,6 +29,8 @@ Page({
   onLoad() {
     const { checkAuth } = require('../../utils/auth')
     checkAuth().then((userInfo) => {
+      const start = Date.now()
+
       if (!userInfo) {
         wx.redirectTo({ url: '/pages/login/login' })
         return
@@ -36,8 +38,14 @@ Page({
 
       this._authChecked = true
       this.loadConfig()
-      this.loadServices()
-      this.scanAvailability()
+        .then(() => this.loadServices())
+        .then(() => this.scanAvailability())
+        .then(() => {
+          console.log('[预约页] 初始化流程耗时:', Date.now() - start)
+        })
+        .catch((err) => {
+          console.error('[预约页] 初始化失败:', err)
+        })
 
       this.setData({
         calendarFormatter: (day) => {
@@ -68,15 +76,24 @@ Page({
   onShow() {
     // 每次页面显示时刷新配置和可预约状态
     if (this._authChecked) {
+      const start = Date.now()
       this.loadConfig()
-      this.scanAvailability()
+        .then(() => this.scanAvailability())
+        .then(() => {
+          console.log('[预约页] onShow 刷新耗时:', Date.now() - start)
+        })
+        .catch((err) => {
+          console.error('[预约页] onShow 刷新失败:', err)
+        })
     }
   },
 
   async scanAvailability(totalDuration) {
     try {
       const params = totalDuration ? { totalDuration } : {}
+      const start = Date.now()
       const result = await checkAvailability(params)
+      console.log('[预约页] checkAvailability 耗时:', Date.now() - start)
 
       this.setData({
         hasAnyAvailable: result.hasAnyAvailable,
@@ -95,8 +112,10 @@ Page({
   },
 
   async loadServices() {
+    const start = Date.now()
     try {
       const services = await getServices()
+      console.log('[预约页] getServices 耗时:', Date.now() - start)
       this.setData({
         services: (services || []).map(s => ({ ...s, selected: false }))
       })
@@ -106,9 +125,11 @@ Page({
   },
 
   async loadConfig() {
+    const start = Date.now()
     try {
       const config = await getConfig()
       const holidaysData = await getHolidays({ type: 'closure' })
+      console.log('[预约页] getConfig + getHolidays 耗时:', Date.now() - start)
 
       const maxAdvanceDays = config.max_advance_days || 14
       const maxDate = Date.now() + maxAdvanceDays * 24 * 60 * 60 * 1000
@@ -212,9 +233,11 @@ Page({
 
   async verifyDateAvailability() {
     wx.showLoading({ title: '验证时段...' })
+    const start = Date.now()
 
     try {
       const result = await checkAvailability({ totalDuration: this.data.totalDuration })
+      console.log('[预约页] verifyDateAvailability.checkAvailability 耗时:', Date.now() - start)
       const dateStatus = result.dateStatus || {}
       const todayStatus = dateStatus[this.data.selectedDate]
 
@@ -252,6 +275,7 @@ Page({
   },
 
   async loadTimeSlots() {
+    const start = Date.now()
     this.setData({ slotsLoading: true, timeSlots: [] })
 
     try {
@@ -269,6 +293,7 @@ Page({
         })),
         slotsLoading: false
       })
+      console.log('[预约页] getAvailableSlots 耗时:', Date.now() - start)
     } catch (err) {
       console.error('获取时段失败:', err)
       this.setData({ slotsLoading: false })

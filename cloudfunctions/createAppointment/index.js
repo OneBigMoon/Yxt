@@ -3,6 +3,7 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
 const db = cloud.database()
 const _ = db.command
+const APPOINTMENT_CREATED_TEMPLATE_ID = process.env.SUBSCRIBE_TEMPLATE_APPOINTMENT_CREATED || ''
 
 exports.main = async (event, context) => {
   const { OPENID } = cloud.getWXContext()
@@ -38,19 +39,41 @@ exports.main = async (event, context) => {
 
     // 2. 再次验证时段是否可用（防并发）
     const configRes = await db.collection('business_config').limit(1).get()
-    const config = configRes.data[0]
+    if (configRes.data.length === 0) {
+      return { code: -1, message: '营业配置不存在' }
+    }
 
-    const dayOfWeek = new Date(date).getDay() || 7
+    const config = configRes.data[0]
+    if (!config || !config.schedule) {
+      return { code: -1, message: '营业配置异常' }
+    }
+
+    const targetDate = parseYmdToDate(date)
+    if (!targetDate) {
+      return { code: -1, message: '日期格式不正确' }
+    }
+
+    const dayOfWeek = targetDate.getUTCDay() || 7
     const workHours = config.schedule[dayOfWeek]
+    if (!Array.isArray(workHours) || workHours.length === 0) {
+      return { code: -1, message: '该时段不在营业时间内' }
+    }
 
     // 检查是否在营业时间内
     const startMinutes = timeToMinutes(start_time)
     const endMinutes = timeToMinutes(end_time)
+    if (startMinutes === null || endMinutes === null) {
+      return { code: -1, message: '时间参数格式错误' }
+    }
     let inWorkHours = false
 
     for (const period of workHours) {
-      const periodStart = timeToMinutes(period.start)
-      const periodEnd = timeToMinutes(period.end)
+      const periodStart = timeToMinutes(period && period.start)
+      const periodEnd = timeToMinutes(period && period.end)
+      if (periodStart === null || periodEnd === null || periodStart >= periodEnd) {
+        continue
+      }
+
       if (startMinutes >= periodStart && endMinutes <= periodEnd) {
         inWorkHours = true
         break
@@ -83,8 +106,14 @@ exports.main = async (event, context) => {
 
     let conflictCount = 0
     for (const apt of appointmentsRes.data) {
+      if (!apt || !apt.start_time || !apt.end_time) {
+        continue
+      }
       const aptStart = timeToMinutes(apt.start_time)
       const aptEnd = timeToMinutes(apt.end_time)
+      if (aptStart === null || aptEnd === null) {
+        continue
+      }
 
       if (startMinutes < aptEnd && endMinutes > aptStart) {
         conflictCount++
@@ -152,16 +181,20 @@ exports.main = async (event, context) => {
 
     // 8. 发送预约成功通知
     try {
-      await cloud.openapi.subscribeMessage.send({
-        touser: OPENID,
-        templateId: 'your-template-id', // 替换为你的模板ID
-        data: {
-          thing1: { value: '预约成功' },
-          time2: { value: `${date} ${start_time}` },
-          thing3: { value: '请按时到店' }
-        },
-        page: `/pages/appointment-detail/appointment-detail?id=${addRes._id}`
-      })
+      if (APPOINTMENT_CREATED_TEMPLATE_ID) {
+        await cloud.openapi.subscribeMessage.send({
+          touser: OPENID,
+          templateId: APPOINTMENT_CREATED_TEMPLATE_ID,
+          data: {
+            thing1: { value: '预约成功' },
+            time2: { value: `${date} ${start_time}` },
+            thing3: { value: '请按时到店' }
+          },
+          page: `/pages/appointment-detail/appointment-detail?id=${addRes._id}`
+        })
+      } else {
+        console.warn('未配置预约成功订阅消息模板，跳过通知')
+      }
     } catch (notifyErr) {
       console.error('发送通知失败:', notifyErr)
     }
@@ -181,6 +214,30 @@ exports.main = async (event, context) => {
 
 // 时间字符串转分钟数
 function timeToMinutes(timeStr) {
+  if (typeof timeStr !== 'string') {
+    return null
+  }
   const [hours, minutes] = timeStr.split(':').map(Number)
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return null
+  }
   return hours * 60 + minutes
+}
+
+function parseYmdToDate(dateStr) {
+  if (typeof dateStr !== 'string') {
+    return null
+  }
+
+  const parts = dateStr.split('-').map(Number)
+  if (parts.length !== 3) {
+    return null
+  }
+
+  const [year, month, day] = parts
+  if (!year || !month || !day) {
+    return null
+  }
+
+  return new Date(Date.UTC(year, month - 1, day))
 }

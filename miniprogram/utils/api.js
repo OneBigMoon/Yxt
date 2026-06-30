@@ -1,60 +1,66 @@
+const formatCost = (start) => `${Date.now() - start}ms`
+const { buildCloudFunctionError } = require('./error')
+
 // 云函数调用封装
 const callFunction = (name, data = {}) => {
+  const start = Date.now()
+  const requestTag = `${name}_${start}_${Math.floor(Math.random() * 10000)}`
+  console.log(`[cloud.callFunction] start ${name}`, { requestTag })
+
   return new Promise((resolve, reject) => {
-    wx.cloud.callFunction({
+    const callOptions = {
       name,
       data,
-      success: res => {
-        if (res.result && res.result.code === 0) {
+      success: (res) => {
+        if (res && res.result && res.result.code === 0) {
+          console.log(`wx.cloud.callFunction [${requestTag}] success`, {
+            name,
+            cost: formatCost(start)
+          })
           resolve(res.result.data)
-        } else {
-          reject(res.result || { message: '请求失败' })
+          return
         }
+
+        console.error(`wx.cloud.callFunction [${requestTag}] business failed`, {
+          name,
+          cost: formatCost(start),
+          result: res && res.result
+        })
+        const businessMessage = res && res.result && (res.result.message || '请求失败')
+        const businessCode = res && res.result && res.result.code
+        const businessError = buildCloudFunctionError(name, requestTag, {
+          message: businessMessage,
+          errCode: businessCode
+        })
+        reject(businessError)
       },
-      fail: err => {
-        console.error(`调用云函数 ${name} 失败:`, err)
-        reject(err)
+      fail: (err) => {
+        const normalizedError = buildCloudFunctionError(name, requestTag, err)
+        console.error(`wx.cloud.callFunction [${requestTag}] failed`, {
+          name,
+          cost: formatCost(start),
+          error: normalizedError
+        })
+        reject(normalizedError)
       }
-    })
+    }
+
+    wx.cloud.callFunction(callOptions)
   })
 }
 
-// 用户登录
 const login = (userInfo) => callFunction('login', userInfo)
-
-// 获取服务列表
 const getServices = () => callFunction('getServices')
-
-// 获取可用时段
 const getAvailableSlots = (data) => callFunction('getAvailableSlots', data)
-
-// 检查可预约性
 const checkAvailability = (data) => callFunction('checkAvailability', data)
-
-// 创建预约
 const createAppointment = (data) => callFunction('createAppointment', data)
-
-// 取消预约
 const cancelAppointment = (id) => callFunction('cancelAppointment', { id })
-
-// 核销预约
 const verifyAppointment = (id) => callFunction('verifyAppointment', { id })
-
-// 获取我的预约列表
 const getMyAppointments = (data) => callFunction('getMyAppointments', data)
-
-// 获取技师预约列表
 const getTechAppointments = (data) => callFunction('getAppointments', data)
-
-// 获取文章列表
 const getArticles = () => callFunction('getArticles')
-
-// 获取文章详情
 const getArticleDetail = (id) => callFunction('getArticleDetail', { id })
-
-// 获取营业配置
 const getConfig = () => callFunction('admin', { action: 'getConfig' })
-
 const getHolidays = (data) => callFunction('admin', { action: 'getHolidays', data })
 
 module.exports = {

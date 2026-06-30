@@ -12,12 +12,17 @@ Page({
   },
 
   onShow() {
-    this.loadAppointments()
+    this.loadAppointments().catch((err) => {
+      console.error('我的预约刷新失败:', err)
+    })
   },
 
   onPullDownRefresh() {
     this.loadAppointments().then(() => {
       wx.stopPullDownRefresh()
+    }).catch((err) => {
+      wx.stopPullDownRefresh()
+      console.error('我的预约下拉刷新失败:', err)
     })
   },
 

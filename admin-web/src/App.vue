@@ -16,41 +16,13 @@
         text-color="#bfcbd9"
         active-text-color="#409eff"
       >
-        <el-menu-item index="/">
-          <el-icon><DataBoard /></el-icon>
-          <span>仪表盘</span>
-        </el-menu-item>
-        <el-menu-item index="/appointments">
-          <el-icon><Calendar /></el-icon>
-          <span>预约管理</span>
-        </el-menu-item>
-        <el-menu-item index="/customers">
-          <el-icon><User /></el-icon>
-          <span>客户管理</span>
-        </el-menu-item>
-        <el-menu-item index="/articles">
-          <el-icon><Document /></el-icon>
-          <span>健康小知识</span>
-        </el-menu-item>
-        <el-menu-item index="/services">
-          <el-icon><Goods /></el-icon>
-          <span>服务管理</span>
-        </el-menu-item>
-        <el-menu-item index="/technicians">
-          <el-icon><UserFilled /></el-icon>
-          <span>技师管理</span>
-        </el-menu-item>
-        <el-menu-item index="/rest-management">
-          <el-icon><Calendar /></el-icon>
-          <span>休息管理</span>
-        </el-menu-item>
-        <el-menu-item index="/business-config">
-          <el-icon><Setting /></el-icon>
-          <span>营业设置</span>
-        </el-menu-item>
-        <el-menu-item index="/commissions">
-          <el-icon><Money /></el-icon>
-          <span>提成统计</span>
+        <el-menu-item
+          v-for="item in visibleMenus"
+          :key="item.index"
+          :index="item.index"
+        >
+          <el-icon><component :is="item.icon" /></el-icon>
+          <span>{{ item.title }}</span>
         </el-menu-item>
       </el-menu>
     </el-aside>
@@ -67,8 +39,9 @@
         <div class="header-right">
           <el-dropdown>
             <span class="el-dropdown-link">
-              管理员
-              <el-icon class="el-icon--right"><arrow-down /></el-icon>
+              <span class="admin-role">{{ roleLabel }}</span>
+              <span>{{ adminDisplayName }}</span>
+              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
             </span>
             <template #dropdown>
               <el-dropdown-menu>
@@ -89,10 +62,47 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  ArrowDown,
+  Calendar,
+  DataBoard,
+  Document,
+  Goods,
+  Money,
+  Setting,
+  User,
+  UserFilled
+} from '@element-plus/icons-vue'
+import {
+  clearAdminInfo,
+  getAdminInfo,
+  getAdminRole,
+  getRoleLabel,
+  hasRoutePermission
+} from './utils/permissions'
 
 const currentRoute = useRoute()
 const router = useRouter()
 const activeMenu = computed(() => currentRoute.path)
+const menuItems = [
+  { index: '/', title: '仪表盘', icon: DataBoard },
+  { index: '/appointments', title: '预约管理', icon: Calendar },
+  { index: '/customers', title: '客户管理', icon: User },
+  { index: '/articles', title: '健康小知识', icon: Document },
+  { index: '/services', title: '服务管理', icon: Goods },
+  { index: '/technicians', title: '技师管理', icon: UserFilled },
+  { index: '/rest-management', title: '休息管理', icon: Calendar },
+  { index: '/business-config', title: '营业设置', icon: Setting },
+  { index: '/commissions', title: '提成统计', icon: Money },
+  { index: '/admin-users', title: '管理员账号', icon: User }
+]
+const currentRole = computed(() => getAdminRole())
+const roleLabel = computed(() => getRoleLabel(currentRole.value))
+const adminInfo = computed(() => getAdminInfo())
+const adminDisplayName = computed(() => adminInfo.value.username || '管理员')
+const visibleMenus = computed(() => (
+  menuItems.filter(item => hasRoutePermission(item.index, currentRole.value))
+))
 
 async function handleLogout() {
   try {
@@ -102,6 +112,9 @@ async function handleLogout() {
       type: 'warning'
     })
     sessionStorage.removeItem('admin_loggedin')
+    sessionStorage.removeItem('admin_password')
+    sessionStorage.removeItem('admin_token')
+    clearAdminInfo()
     router.push('/login')
     ElMessage.success('已退出登录')
   } catch {
@@ -160,6 +173,12 @@ async function handleLogout() {
   cursor: pointer;
   display: flex;
   align-items: center;
+  gap: 6px;
+}
+
+.admin-role {
+  color: #909399;
+  font-size: 12px;
 }
 
 .app-main {

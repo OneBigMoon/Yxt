@@ -1,50 +1,53 @@
 const app = getApp()
+const { callFunction } = require('./api')
+
+const syncUserToGlobal = (data) => {
+  if (!data) {
+    return null
+  }
+
+  app.globalData.userInfo = data
+  app.globalData.role = data.role
+  app.globalData.openid = data.openid
+  wx.setStorageSync('userInfo', data)
+
+  return data
+}
 
 const fullLogin = async (userInfo, phoneCode) => {
-  try {
-    const result = await wx.cloud.callFunction({
-      name: 'login',
-      data: {
-        type: 'login',
-        userInfo,
-        phoneCode
-      }
-    })
+  const user = await callFunction('login', {
+    type: 'login',
+    userInfo,
+    phoneCode
+  })
 
-    if (result.result && result.result.code === 0) {
-      const data = result.result.data
-      app.globalData.userInfo = data
-      app.globalData.role = data.role
-      app.globalData.openid = data.openid
-      wx.setStorageSync('userInfo', data)
-      return data
-    } else {
-      throw new Error(result.result?.message || '登录失败')
-    }
-  } catch (err) {
-    throw err
+  if (!user) {
+    throw new Error('登录失败')
   }
+  return syncUserToGlobal(user)
 }
 
 const updateProfile = async (nickName, avatarUrl) => {
-  const result = await wx.cloud.callFunction({
-    name: 'login',
-    data: {
-      type: 'updateProfile',
-      nickName,
-      avatarUrl
-    }
+  const user = await callFunction('login', {
+    type: 'updateProfile',
+    nickName,
+    avatarUrl
   })
 
-  if (result.result && result.result.code === 0) {
-    const data = result.result.data
-    app.globalData.userInfo = data
-    app.globalData.role = data.role
-    wx.setStorageSync('userInfo', data)
-    return data
-  } else {
-    throw new Error(result.result?.message || '更新失败')
+  if (!user) {
+    throw new Error('更新失败')
   }
+  return syncUserToGlobal(user)
+}
+
+const checkBlacklist = async () => {
+  const localUser = wx.getStorageSync('userInfo')
+  if (!localUser || !localUser.openid) {
+    return false
+  }
+
+  const latest = await callFunction('login', { type: 'login' })
+  return Boolean(latest && latest.is_blacklisted)
 }
 
 const checkAuth = () => {
@@ -71,6 +74,7 @@ const logout = () => {
 module.exports = {
   fullLogin,
   updateProfile,
+  checkBlacklist,
   checkAuth,
   logout
 }

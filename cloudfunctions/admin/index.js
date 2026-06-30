@@ -1,17 +1,230 @@
 const cloud = require('wx-server-sdk')
+const crypto = require('crypto')
+const https = require('https')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
 const db = cloud.database()
 const _ = db.command
+const wechatTokenCache = { token: '', expireAt: 0 }
+const REQUEST_TIMEOUT_MS = 8000
+const MINI_PROGRAM_QR_SCENE_MAX_LENGTH = 32
+const MINI_PROGRAM_PAGE_MAX_LENGTH = 128
+const ADMIN_PASSWORD_SALT = process.env.ADMIN_PASSWORD_SALT || 'yxt-admin-salt'
+const ADMIN_BOOTSTRAP_USERNAME = process.env.ADMIN_BOOTSTRAP_USERNAME || ''
+const ADMIN_BOOTSTRAP_PASSWORD = process.env.ADMIN_BOOTSTRAP_PASSWORD || ''
+const WECHAT_MINIPROGRAM_QR_ENV_VERSION = process.env.WECHAT_MINIPROGRAM_QR_ENV_VERSION || 'release'
+const ADMIN_ROLE_OPTIONS = ['super_admin', 'manager', 'viewer']
+const ADMIN_ACTION_PERMISSIONS = {
+  super_admin: ['*'],
+  manager: [
+    'getServices', 'createService', 'updateService',
+    'getTechnicians', 'createTechnician', 'updateTechnician', 'toggleTechnicianStatus',
+    'getCustomers', 'updateCustomer', 'deleteCustomer', 'toggleBlacklist',
+    'getAppointments', 'getAppointmentDetail',
+    'getHolidays', 'addHoliday', 'deleteHoliday',
+    'getTechDaysOff', 'addTechDayOff', 'deleteTechDayOff',
+    'getCommissions', 'getCommissionSummary',
+    'getArticles', 'createArticle', 'updateArticle', 'toggleArticleStatus',
+    'updateConfig', 'importHolidays',
+    'getCurrentAdmin'
+  ],
+  viewer: [
+    'getServices',
+    'getTechnicians',
+    'getCustomers',
+    'getAppointments', 'getAppointmentDetail',
+    'getHolidays',
+    'getTechDaysOff',
+    'getCommissions', 'getCommissionSummary',
+    'getArticles',
+    'getCurrentAdmin'
+  ]
+}
+
+function normalizeAdminRole(role, fallback = 'manager') {
+  return ADMIN_ROLE_OPTIONS.includes(role) ? role : fallback
+}
+
+function canAdminAccessAction(role, action) {
+  const normalizedRole = normalizeAdminRole(role, 'viewer')
+  const allowedActions = ADMIN_ACTION_PERMISSIONS[normalizedRole] || []
+  return allowedActions.includes('*') || allowedActions.includes(action)
+}
+
+function sanitizeAdminUser(user = {}) {
+  const safeUser = { ...user }
+  delete safeUser.password_hash
+  safeUser.role = normalizeAdminRole(safeUser.role, 'super_admin')
+  safeUser.status = safeUser.status || 'active'
+  return safeUser
+}
+
+function getWechatMiniProgramConfig() {
+  const appid = process.env.WECHAT_APPID || process.env.WECHAT_APP_ID || process.env.WX_APPID || process.env.WX_APP_ID
+  const appSecret = process.env.WECHAT_APPSECRET || process.env.WECHAT_APP_SECRET || process.env.WX_APPSECRET || process.env.WX_APP_SECRET
+  return { appid, appSecret }
+}
+
+async function requestWechatJson(url, method, data, headers = {}) {
+  const hasBody = data && method !== 'GET'
+  const body = hasBody ? JSON.stringify(data) : ''
+  const requestUrl = new URL(url)
+  const timeoutMs = REQUEST_TIMEOUT_MS
+
+  return new Promise((resolve, reject) => {
+    let req = null
+    const timer = setTimeout(() => {
+      if (req) {
+        req.destroy()
+      }
+      reject(new Error(`微信 API 请求超时：${method} ${url}`))
+    }, timeoutMs)
+
+    req = https.request(
+      {
+        protocol: requestUrl.protocol,
+        hostname: requestUrl.hostname,
+        port: requestUrl.port,
+        path: `${requestUrl.pathname}${requestUrl.search}`,
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(hasBody ? { 'Content-Length': Buffer.from(body).length } : {}),
+          ...headers
+        }
+      },
+      (res) => {
+        const chunks = []
+        res.on('data', c => chunks.push(c))
+        res.on('end', () => {
+          clearTimeout(timer)
+          const responseBody = Buffer.concat(chunks)
+          const contentType = (res.headers['content-type'] || '').toLowerCase()
+
+          if (contentType.includes('application/json') || contentType.includes('text/plain')) {
+            let payload
+            try {
+              payload = JSON.parse(responseBody.toString('utf8') || '{}')
+            } catch (err) {
+              payload = { raw: responseBody.toString('utf8') }
+            }
+            if (payload && typeof payload.errcode !== 'undefined' && Number(payload.errcode) !== 0) {
+              const msg = payload.errmsg ? payload.errmsg : `HTTP ${res.statusCode}`
+              reject(new Error(`微信 API 调用失败: ${msg}`))
+              return
+            }
+
+            if (res.statusCode < 200 || res.statusCode >= 300) {
+              const msg = payload && payload.errmsg ? payload.errmsg : `HTTP ${res.statusCode}`
+              reject(new Error(`微信 API 调用失败: ${msg}`))
+              return
+            }
+            resolve({ body: payload, headers: res.headers, contentType })
+            return
+          }
+
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            reject(new Error(`微信 API 调用失败: HTTP ${res.statusCode}`))
+            return
+          }
+
+          resolve({ body: responseBody, headers: res.headers, contentType })
+        })
+      }
+    )
+
+    req.on('error', (err) => {
+      clearTimeout(timer)
+      reject(err)
+    })
+    if (hasBody) req.write(body)
+    req.end()
+  })
+}
+
+async function getWechatAccessToken() {
+  const now = Date.now()
+  if (wechatTokenCache.token && wechatTokenCache.expireAt > now + 60 * 1000) {
+    return wechatTokenCache.token
+  }
+
+  const { appid, appSecret } = getWechatMiniProgramConfig()
+  if (!appid || !appSecret) {
+    throw new Error('缺少微信小程序 APPID/APPSECRET 配置，无法生成小程序码')
+  }
+
+  const tokenApi = `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${encodeURIComponent(appid)}&secret=${encodeURIComponent(appSecret)}`
+  const tokenRes = await requestWechatJson(tokenApi, 'GET')
+
+  if (!tokenRes.body || !tokenRes.body.access_token) {
+    throw new Error('微信 token 返回异常')
+  }
+
+  const expireInSeconds = Number(tokenRes.body.expires_in || 7200)
+  wechatTokenCache.token = tokenRes.body.access_token
+  wechatTokenCache.expireAt = now + (Math.max(120, expireInSeconds - 120) * 1000)
+  return wechatTokenCache.token
+}
+
+function getMiniProgramPagePath() {
+  const configuredPath = process.env.WECHAT_MINIPROGRAM_LOGIN_PAGE
+    || 'pages/scan-confirm/scan-confirm'
+  const normalized = (configuredPath || '').replace(/^\//, '')
+
+  if (!normalized || normalized.length > MINI_PROGRAM_PAGE_MAX_LENGTH) {
+    return 'pages/scan-confirm/scan-confirm'
+  }
+
+  return normalized
+}
+
+function normalizeMiniProgramScene(sessionId) {
+  if (typeof sessionId !== 'string') return ''
+  if (sessionId.length > MINI_PROGRAM_QR_SCENE_MAX_LENGTH) return ''
+  return sessionId
+}
 
 exports.main = async (event, context) => {
+  if (event && event.httpMethod) {
+    return handleHttpAccess(event)
+  }
+
   const { action, data, id } = event
 
   try {
+    // 受保护的 action 需要校验管理员会话和角色权限
+    const protectedActions = [
+      'getServices', 'createService', 'updateService',
+      'getTechnicians', 'createTechnician', 'updateTechnician', 'toggleTechnicianStatus',
+      'getCustomers', 'updateCustomer', 'deleteCustomer', 'toggleBlacklist',
+      'getAppointments', 'getAppointmentDetail',
+      'getHolidays', 'addHoliday', 'deleteHoliday',
+      'getTechDaysOff', 'addTechDayOff', 'deleteTechDayOff',
+      'getCommissions', 'getCommissionSummary',
+      'getArticles', 'createArticle', 'updateArticle', 'toggleArticleStatus',
+      'updateConfig', 'importHolidays',
+      'getCurrentAdmin',
+      'getAdminUsers', 'addAdminUser', 'updateAdminUser', 'removeAdminUser', 'createAdminBindSession'
+    ]
+
+    if (protectedActions.includes(action)) {
+      const adminAuth = await getAdminAuth(event)
+      if (!adminAuth) {
+        return { code: -1, message: '身份验证失败，请重新登录' }
+      }
+      if (!canAdminAccessAction(adminAuth.role, action)) {
+        return { code: -1, message: '当前账号无权限访问该功能' }
+      }
+    }
+
     switch (action) {
       // 获取营业配置
       case 'getConfig':
-        return await getConfig()
+        return await getConfig(event)
+
+      // 管理员登录
+      case 'verifyAdminPassword':
+        return await verifyAdminPassword(data)
 
       // 更新营业配置
       case 'updateConfig':
@@ -85,6 +298,32 @@ exports.main = async (event, context) => {
       case 'importHolidays':
         return await importHolidays()
 
+      // 管理员账号管理
+      case 'getCurrentAdmin':
+        return await getCurrentAdmin(event)
+      case 'getAdminUsers':
+        return await getAdminUsers()
+      case 'addAdminUser':
+        return await addAdminUser(data)
+      case 'updateAdminUser':
+        return await updateAdminUser(data)
+      case 'removeAdminUser':
+        return await removeAdminUser(data)
+
+      // 扫码登录
+      case 'createSession':
+        return await createLoginSession(data)
+      case 'createLoginSession':
+        return await createLoginSession(data)
+      case 'createAdminBindSession':
+        return await createAdminBindSession(data)
+      case 'confirmLoginSession':
+        return await confirmLoginSession(data)
+      case 'checkLoginSession':
+        return await checkLoginSession(data)
+      case 'scanLogin':
+        return await scanLogin(data)
+
       default:
         return { code: -1, message: '未知操作' }
     }
@@ -94,9 +333,108 @@ exports.main = async (event, context) => {
   }
 }
 
+function handleHttpAccess(event) {
+  const query = event.queryStringParameters || {}
+  const sessionId = query.session_id || ''
+
+  if (event.httpMethod !== 'GET') {
+    return {
+      statusCode: 405,
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ message: 'Method Not Allowed' })
+    }
+  }
+
+  if (!sessionId || !/^[a-z0-9]{32}$/.test(sessionId)) {
+    return {
+      statusCode: 400,
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      body: '<!doctype html><html><head><meta charset="utf-8"><title>扫码登录</title></head><body><p>无效的登录二维码，请返回管理后台刷新后重试。</p></body></html>'
+    }
+  }
+
+  return {
+    statusCode: 200,
+    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    body: '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>扫码登录</title></head><body><p>请使用微信扫描该二维码，并在小程序内确认登录。</p></body></html>'
+  }
+}
+
+function generateToken(byteLength = 32) {
+  return crypto.randomBytes(byteLength).toString('hex')
+}
+
+function hashAdminPassword(password) {
+  return crypto
+    .createHash('sha256')
+    .update(`${ADMIN_PASSWORD_SALT}:${String(password || '')}`)
+    .digest('hex')
+}
+
+async function createAdminSession(data = {}) {
+  const token = generateToken()
+  const now = Date.now()
+  const role = normalizeAdminRole(data.role, 'super_admin')
+
+  await db.collection('admin_sessions').add({
+    data: {
+      _id: token,
+      admin_user_id: data.admin_user_id || '',
+      username: data.username || '',
+      role,
+      openid: data.openid || '',
+      login_method: data.login_method || 'password',
+      created_at: now,
+      expires_at: now + 24 * 60 * 60 * 1000
+    }
+  })
+
+  return token
+}
+
+async function getAdminAuth(event = {}) {
+  if (!event.admin_token) {
+    return null
+  }
+
+  try {
+    const session = await db.collection('admin_sessions').doc(event.admin_token).get()
+    if (!session.data || Date.now() > session.data.expires_at) {
+      return null
+    }
+
+    let role = normalizeAdminRole(session.data.role, 'super_admin')
+    let username = session.data.username || ''
+    const adminUserId = session.data.admin_user_id || ''
+
+    if (adminUserId) {
+      const adminUserRes = await db.collection('admin_users').doc(adminUserId).get()
+      if (!adminUserRes.data || (adminUserRes.data.status && adminUserRes.data.status !== 'active')) {
+        return null
+      }
+      role = normalizeAdminRole(adminUserRes.data.role, 'super_admin')
+      username = adminUserRes.data.username || username
+    }
+
+    return {
+      token: event.admin_token,
+      admin_user_id: adminUserId,
+      username,
+      role,
+      openid: session.data.openid || ''
+    }
+  } catch (err) {
+    return null
+  }
+}
+
+async function validateAdminAuth(event = {}) {
+  return Boolean(await getAdminAuth(event))
+}
+
 // ==================== 营业配置 ====================
 
-async function getConfig() {
+async function getConfig(event = {}) {
   const res = await db.collection('business_config').limit(1).get()
   if (res.data.length === 0) {
     // 创建默认配置
@@ -123,10 +461,91 @@ async function getConfig() {
     }
 
     await db.collection('business_config').add({ data: defaultConfig })
-    return { code: 0, data: defaultConfig }
+    return { code: 0, data: sanitizeConfig(defaultConfig, await validateAdminAuth(event)) }
   }
 
-  return { code: 0, data: res.data[0] }
+  return { code: 0, data: sanitizeConfig(res.data[0], await validateAdminAuth(event)) }
+}
+
+function sanitizeConfig(config, isAdmin) {
+  if (isAdmin) {
+    return config
+  }
+
+  const { admin_password, ...publicConfig } = config
+  return publicConfig
+}
+
+async function verifyAdminPassword(data) {
+  if (!data || !data.password || !data.username) {
+    return { code: -1, message: '请输入账号和密码' }
+  }
+
+  const username = (data.username || '').trim()
+  const accountRes = await db.collection('admin_users').where({ username }).limit(1).get()
+  if (accountRes.data.length === 0) {
+    const bootstrapResult = await tryBootstrapFirstAdmin(username, data.password)
+    if (bootstrapResult) {
+      return bootstrapResult
+    }
+
+    return { code: -1, message: '账号或密码错误' }
+  }
+
+  const account = accountRes.data[0]
+  if (account.status && account.status !== 'active') {
+    return { code: -1, message: '账号已停用，请联系管理员' }
+  }
+
+  if (account.password_hash !== hashAdminPassword(data.password)) {
+    return { code: -1, message: '账号或密码错误' }
+  }
+
+  const role = normalizeAdminRole(account.role, 'super_admin')
+  const token = await createAdminSession({
+    admin_user_id: account._id,
+    username: account.username,
+    role,
+    login_method: 'password',
+    openid: account.openid || ''
+  })
+  return { code: 0, data: { token, username: account.username, role } }
+}
+
+async function tryBootstrapFirstAdmin(username, password) {
+  if (!ADMIN_BOOTSTRAP_USERNAME || !ADMIN_BOOTSTRAP_PASSWORD) {
+    return null
+  }
+
+  if (username !== ADMIN_BOOTSTRAP_USERNAME || String(password || '') !== ADMIN_BOOTSTRAP_PASSWORD) {
+    return null
+  }
+
+  const existingAdminRes = await db.collection('admin_users').limit(1).get()
+  if (existingAdminRes.data.length > 0) {
+    return null
+  }
+
+  const addRes = await db.collection('admin_users').add({
+    data: {
+      username,
+      password_hash: hashAdminPassword(password),
+      openid: '',
+      role: 'super_admin',
+      name: '系统管理员',
+      remark: '首次登录自动创建',
+      status: 'active',
+      created_at: db.serverDate()
+    }
+  })
+
+  const token = await createAdminSession({
+    admin_user_id: addRes._id,
+    username,
+    role: 'super_admin',
+    login_method: 'password'
+  })
+  return { code: 0, data: { token, username, role: 'super_admin', bootstrapped: true } }
 }
 
 async function updateConfig(data) {
@@ -788,4 +1207,548 @@ async function importHolidays() {
     code: 0,
     data: { message: `导入完成：新增 ${added} 天，跳过 ${skipped} 天已存在记录` }
   }
+}
+
+// ==================== 扫码登录 ====================
+
+function generateSessionId() {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
+  let id = ''
+  for (let i = 0; i < 32; i++) {
+    id += chars.charAt(Math.floor(Math.random() * chars.length))
+  }
+  return id
+}
+
+async function createLoginSession(data = {}) {
+  const sessionId = normalizeMiniProgramScene(generateSessionId())
+  if (!sessionId) {
+    return { code: -1, message: '会话创建失败' }
+  }
+
+  const now = Date.now()
+
+  await db.collection('login_sessions').add({
+    data: {
+      _id: sessionId,
+      status: 'pending',
+      type: 'admin_login',
+      openid: '',
+      created_at: now,
+      expires_at: now + 5 * 60 * 1000 // 5 分钟过期
+    }
+  })
+
+  const qrCodeBase64 = await createMiniProgramLoginQrCode(sessionId)
+  if (!qrCodeBase64) {
+    await db.collection('login_sessions').doc(sessionId).update({
+      data: {
+        status: 'expired',
+        reject_reason: '小程序码生成失败'
+      }
+    })
+    return { code: -1, message: '小程序码生成失败，请检查微信 AppSecret 或云调用权限配置' }
+  }
+
+  return {
+    code: 0,
+    data: {
+      session_id: sessionId,
+      expires_at: now + 5 * 60 * 1000,
+      qr_code_base64: qrCodeBase64,
+      qr_code_type: 'miniprogram'
+    }
+  }
+}
+
+async function createAdminBindSession(data = {}) {
+  if (!data || !data.id) {
+    return { code: -1, message: '缺少管理员账号 id' }
+  }
+
+  const adminRes = await db.collection('admin_users').doc(data.id).get()
+  if (!adminRes.data) {
+    return { code: -1, message: '管理员账号不存在' }
+  }
+
+  const sessionId = normalizeMiniProgramScene(generateSessionId())
+  if (!sessionId) {
+    return { code: -1, message: '会话创建失败' }
+  }
+
+  const now = Date.now()
+  await db.collection('login_sessions').add({
+    data: {
+      _id: sessionId,
+      status: 'pending',
+      type: 'admin_bind',
+      admin_user_id: data.id,
+      admin_username: adminRes.data.username || '',
+      openid: '',
+      created_at: now,
+      expires_at: now + 5 * 60 * 1000
+    }
+  })
+
+  const qrCodeBase64 = await createMiniProgramLoginQrCode(sessionId)
+  if (!qrCodeBase64) {
+    await db.collection('login_sessions').doc(sessionId).update({
+      data: {
+        status: 'expired',
+        reject_reason: '小程序码生成失败'
+      }
+    })
+    return { code: -1, message: '小程序码生成失败，请检查微信 AppSecret 或云调用权限配置' }
+  }
+
+  return {
+    code: 0,
+    data: {
+      session_id: sessionId,
+      expires_at: now + 5 * 60 * 1000,
+      qr_code_base64: qrCodeBase64,
+      qr_code_type: 'miniprogram',
+      username: adminRes.data.username || ''
+    }
+  }
+}
+
+async function createMiniProgramLoginQrCode(sessionId) {
+  const pagePath = getMiniProgramPagePath()
+  const scene = normalizeMiniProgramScene(sessionId)
+
+  if (!scene) {
+    console.error('小程序码场景参数不合法：', sessionId)
+    return ''
+  }
+
+  try {
+    const accessToken = await getWechatAccessToken()
+    const codeUrl = `https://api.weixin.qq.com/wxa/getwxacodeunlimit?access_token=${encodeURIComponent(accessToken)}`
+    const result = await requestWechatJson(codeUrl, 'POST', {
+      scene,
+      page: pagePath,
+      check_path: false,
+      env_version: WECHAT_MINIPROGRAM_QR_ENV_VERSION,
+      width: 280
+    })
+
+    if (!result || !result.body || !result.body.length) {
+      throw new Error('小程序码返回为空')
+    }
+
+    if ((result.contentType || '').includes('json')) {
+      const payload = result.body || {}
+      const errCode = payload.errcode
+      if (errCode) {
+        throw new Error(payload.errmsg || `errcode=${errCode}`)
+      }
+    }
+
+    return result.body.toString('base64')
+  } catch (err) {
+    console.error('生成微信小程序码失败:', err)
+
+    try {
+      const fallback = await cloud.openapi.wxacode.getUnlimited({
+        scene,
+        page: pagePath,
+        checkPath: false,
+        width: 280
+      })
+
+      if (!fallback || !fallback.buffer) {
+        return ''
+      }
+
+      return fallback.buffer.toString('base64')
+    } catch (fallbackErr) {
+      console.error('OpenAPI fallback 失败:', fallbackErr)
+      return ''
+    }
+  }
+}
+
+async function confirmLoginSession(data) {
+  if (!data || !data.session_id) {
+    return { code: -1, message: '缺少 session_id' }
+  }
+
+  const markRejected = async (reason, status = 'rejected') => {
+    try {
+      await db.collection('login_sessions').doc(data.session_id).update({
+        data: {
+          status,
+          reject_reason: reason,
+          rejected_at: Date.now()
+        }
+      })
+    } catch (err) {
+      console.error('标记扫码会话状态失败:', err)
+    }
+  }
+
+  const wxContext = cloud.getWXContext()
+  const openid = wxContext.OPENID
+
+  if (!openid) {
+    await markRejected('无法获取微信身份')
+    return { code: -1, message: '无法获取用户身份' }
+  }
+
+  try {
+    const session = await db.collection('login_sessions').doc(data.session_id).get()
+
+    if (!session.data) {
+      await markRejected('会话不存在')
+      return { code: -1, message: '登录会话不存在' }
+    }
+
+    if (session.data.status !== 'pending') {
+      await markRejected('会话已使用或过期', session.data.status || 'rejected')
+      return { code: -1, message: '该登录会话已使用或过期' }
+    }
+
+    if (Date.now() > session.data.expires_at) {
+      await markRejected('登录会话已过期')
+      await db.collection('login_sessions').doc(data.session_id).update({
+        data: { status: 'expired' }
+      })
+      return { code: -1, message: '登录会话已过期' }
+    }
+
+    if (session.data.type === 'admin_bind') {
+      return await confirmAdminBindSession(data.session_id, session.data, openid, markRejected)
+    }
+
+    return await confirmAdminLoginSession(data.session_id, openid, markRejected)
+  } catch (err) {
+    await markRejected('确认失败：' + err.message)
+    return { code: -1, message: '确认失败：' + err.message }
+  }
+}
+
+async function confirmAdminLoginSession(sessionId, openid, markRejected) {
+  try {
+    const adminUser = await db.collection('admin_users').where({ openid, status: 'active' }).get()
+    if (adminUser.data.length === 0) {
+      await markRejected('该微信用户未绑定或账号已停用')
+      return { code: -1, message: '无权限访问管理后台，请先在管理员账号中绑定微信' }
+    }
+  } catch (err) {
+    await markRejected('未查询到管理员绑定配置')
+    return { code: -1, message: '无权限访问管理后台，请先在管理员账号中绑定微信' }
+  }
+
+  await db.collection('login_sessions').doc(sessionId).update({
+    data: {
+      status: 'confirmed',
+      type: 'admin_login',
+      openid,
+      confirmed_at: Date.now()
+    }
+  })
+
+  return { code: 0, data: { message: '确认登录成功', type: 'admin_login' } }
+}
+
+async function confirmAdminBindSession(sessionId, session, openid, markRejected) {
+  if (!session.admin_user_id) {
+    await markRejected('绑定会话缺少管理员账号')
+    return { code: -1, message: '绑定会话异常，请重新生成二维码' }
+  }
+
+  const targetRes = await db.collection('admin_users').doc(session.admin_user_id).get()
+  if (!targetRes.data) {
+    await markRejected('管理员账号不存在')
+    return { code: -1, message: '管理员账号不存在' }
+  }
+
+  if (targetRes.data.status && targetRes.data.status !== 'active') {
+    await markRejected('管理员账号已停用')
+    return { code: -1, message: '管理员账号已停用，不能绑定微信' }
+  }
+
+  const existing = await db.collection('admin_users')
+    .where({
+      openid,
+      _id: _.neq(session.admin_user_id)
+    })
+    .get()
+
+  if (existing.data.length > 0) {
+    await markRejected('该微信已绑定其他管理员账号')
+    return { code: -1, message: '该微信已绑定其他管理员账号，请先解绑后重试' }
+  }
+
+  await db.collection('admin_users').doc(session.admin_user_id).update({
+    data: {
+      openid,
+      bound_at: db.serverDate(),
+      updated_at: db.serverDate()
+    }
+  })
+
+  await db.collection('login_sessions').doc(sessionId).update({
+    data: {
+      status: 'confirmed',
+      type: 'admin_bind',
+      openid,
+      confirmed_at: Date.now()
+    }
+  })
+
+  return { code: 0, data: { message: '微信绑定成功', type: 'admin_bind' } }
+}
+
+async function checkLoginSession(data) {
+  if (!data || !data.session_id) {
+    return { code: -1, message: '缺少 session_id' }
+  }
+
+  try {
+    const session = await db.collection('login_sessions').doc(data.session_id).get()
+
+    if (!session.data) {
+      return { code: -1, message: '会话不存在' }
+    }
+
+    if (Date.now() > session.data.expires_at && session.data.status !== 'logged_in') {
+      await db.collection('login_sessions').doc(data.session_id).update({
+        data: { status: 'expired' }
+      })
+      return { code: 0, data: { status: 'expired' } }
+    }
+
+    return {
+      code: 0,
+      data: {
+        status: session.data.status,
+        type: session.data.type || 'admin_login',
+        admin_username: session.data.admin_username || '',
+        reason: session.data.reject_reason || '',
+        reject_reason: session.data.reject_reason || ''
+      }
+    }
+  } catch (err) {
+    return { code: -1, message: '查询失败：' + err.message }
+  }
+}
+
+async function scanLogin(data) {
+  if (!data || !data.session_id) {
+    return { code: -1, message: '缺少 session_id' }
+  }
+
+  try {
+    const session = await db.collection('login_sessions').doc(data.session_id).get()
+
+    if (!session.data) {
+      return { code: -1, message: '会话不存在' }
+    }
+
+    if (session.data.status === 'rejected') {
+      return { code: -1, message: '会话已被拒绝' }
+    }
+
+    if (session.data.type && session.data.type !== 'admin_login') {
+      return { code: -1, message: '该二维码不是登录二维码，请刷新后重试' }
+    }
+
+    if (session.data.status !== 'confirmed') {
+      return { code: -1, message: '会话未确认或已过期' }
+    }
+
+    if (Date.now() > session.data.expires_at) {
+      await db.collection('login_sessions').doc(data.session_id).update({
+        data: { status: 'expired' }
+      })
+      return { code: -1, message: '会话已过期' }
+    }
+
+    const adminRes = await db.collection('admin_users')
+      .where({ openid: session.data.openid })
+      .limit(1)
+      .get()
+
+    if (adminRes.data.length === 0) {
+      return { code: -1, message: '该微信未绑定管理员账号' }
+    }
+
+    const adminUser = adminRes.data[0]
+    if (adminUser.status && adminUser.status !== 'active') {
+      return { code: -1, message: '管理员账号已停用' }
+    }
+
+    const role = normalizeAdminRole(adminUser.role, 'super_admin')
+    const token = await createAdminSession({
+      admin_user_id: adminUser._id,
+      username: adminUser.username || '',
+      role,
+      openid: adminUser.openid || session.data.openid,
+      login_method: 'scan'
+    })
+
+    await db.collection('login_sessions').doc(data.session_id).update({
+      data: {
+        status: 'logged_in',
+        admin_token: token,
+        logged_in_at: Date.now()
+      }
+    })
+
+    return { code: 0, data: { token, username: adminUser.username || '', role } }
+  } catch (err) {
+    return { code: -1, message: '登录失败：' + err.message }
+  }
+}
+
+// ==================== 管理员账号管理 ====================
+
+async function getCurrentAdmin(event = {}) {
+  const adminAuth = await getAdminAuth(event)
+  if (!adminAuth) {
+    return { code: -1, message: '身份验证失败，请重新登录' }
+  }
+
+  return {
+    code: 0,
+    data: {
+      username: adminAuth.username || '管理员',
+      role: adminAuth.role,
+      openid: adminAuth.openid || ''
+    }
+  }
+}
+
+async function getAdminUsers() {
+  const res = await db.collection('admin_users')
+    .orderBy('created_at', 'desc')
+    .get()
+  return { code: 0, data: res.data.map(sanitizeAdminUser) }
+}
+
+async function addAdminUser(data) {
+  const username = (data && data.username || '').trim()
+  const password = (data && data.password || '').trim()
+  const role = normalizeAdminRole(data && typeof data.role === 'string' ? data.role : 'manager', '')
+
+  if (!username) {
+    return { code: -1, message: '请输入登录账号' }
+  }
+  if (!password) {
+    return { code: -1, message: '请输入登录密码' }
+  }
+  if (!role) {
+    return { code: -1, message: '管理员角色无效' }
+  }
+
+  const existing = await db.collection('admin_users').where({ username }).get()
+  if (existing.data.length > 0) {
+    return { code: -1, message: '账号名称已存在' }
+  }
+
+  const openid = (data.openid || '').trim()
+  if (openid) {
+    const existingOpenid = await db.collection('admin_users').where({ openid }).get()
+    if (existingOpenid.data.length > 0) {
+      return { code: -1, message: '该微信已绑定其他管理员账号' }
+    }
+  }
+
+  await db.collection('admin_users').add({
+    data: {
+      username,
+      password_hash: hashAdminPassword(password),
+      openid,
+      role,
+      name: data.name || '',
+      remark: data.remark || '',
+      status: 'active',
+      created_at: db.serverDate()
+    }
+  })
+
+  return { code: 0, data: { message: '添加成功' } }
+}
+
+async function updateAdminUser(data) {
+  if (!data || !data.id) {
+    return { code: -1, message: '缺少 id' }
+  }
+
+  const updateData = {}
+
+  if (typeof data.username === 'string') {
+    const username = data.username.trim()
+    if (!username) {
+      return { code: -1, message: '登录账号不能为空' }
+    }
+
+    const existing = await db.collection('admin_users')
+      .where({
+        username,
+        _id: _.neq(data.id)
+      }).get()
+    if (existing.data.length > 0) {
+      return { code: -1, message: '账号名称已存在' }
+    }
+
+    updateData.username = username
+  }
+
+  if (typeof data.password === 'string' && data.password.trim()) {
+    updateData.password_hash = hashAdminPassword(data.password)
+  }
+
+  if (typeof data.role === 'string') {
+    const role = normalizeAdminRole(data.role, '')
+    if (!role) {
+      return { code: -1, message: '管理员角色无效' }
+    }
+    updateData.role = role
+  }
+
+  if (typeof data.openid === 'string') {
+    const openid = data.openid.trim()
+    if (openid) {
+      const existingOpenid = await db.collection('admin_users')
+        .where({
+          openid,
+          _id: _.neq(data.id)
+        })
+        .get()
+      if (existingOpenid.data.length > 0) {
+        return { code: -1, message: '该微信已绑定其他管理员账号' }
+      }
+    }
+    updateData.openid = openid
+  }
+  if (typeof data.name === 'string') {
+    updateData.name = data.name.trim()
+  }
+  if (typeof data.remark === 'string') {
+    updateData.remark = data.remark.trim()
+  }
+  if (typeof data.status === 'string' && ['active', 'inactive'].includes(data.status)) {
+    updateData.status = data.status
+  }
+
+  if (Object.keys(updateData).length === 0) {
+    return { code: 0, data: { message: '未修改任何字段' } }
+  }
+
+  updateData.updated_at = db.serverDate()
+  await db.collection('admin_users').doc(data.id).update({ data: updateData })
+
+  return { code: 0, data: { message: '更新成功' } }
+}
+
+async function removeAdminUser(data) {
+  if (!data || !data.id) {
+    return { code: -1, message: '缺少 id' }
+  }
+
+  await db.collection('admin_users').doc(data.id).remove()
+  return { code: 0, data: { message: '删除成功' } }
 }

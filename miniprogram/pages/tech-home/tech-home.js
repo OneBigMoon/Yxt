@@ -18,13 +18,18 @@ Page({
 
   onShow() {
     if (this._authChecked) {
-      this.loadAppointments()
+      this.loadAppointments().catch((err) => {
+        console.error('技师首页刷新失败:', err)
+      })
     }
   },
 
   onPullDownRefresh() {
     this.loadAppointments().then(() => {
       wx.stopPullDownRefresh()
+    }).catch((err) => {
+      wx.stopPullDownRefresh()
+      console.error('技师首页下拉刷新失败:', err)
     })
   },
 
@@ -67,10 +72,18 @@ Page({
     wx.scanCode({
       onlyFromCamera: false,
       scanType: ['qrCode'],
-      success: async (res) => {
+      success: (res) => {
         const scene = res.result
         if (scene) {
-          await this.verifyAppointment(scene)
+          const loginSessionId = this.getScanLoginSessionId(scene)
+          if (loginSessionId) {
+            wx.navigateTo({
+              url: `/pages/scan-confirm/scan-confirm?session_id=${loginSessionId}`
+            })
+            return
+          }
+
+          void this.verifyAppointment(scene)
         } else {
           wx.showToast({ title: '无效的二维码', icon: 'none' })
         }
@@ -82,6 +95,11 @@ Page({
     })
   },
 
+  getScanLoginSessionId(value) {
+    const match = `${value || ''}`.match(/[?&]session_id=([^&#]+)/)
+    return match ? decodeURIComponent(match[1]) : ''
+  },
+
   // 从列表核销
   verifyFromList(e) {
     const id = e.currentTarget.dataset.id
@@ -90,7 +108,7 @@ Page({
       content: '确定要核销该预约吗？',
       success: (res) => {
         if (res.confirm) {
-          this.verifyAppointment(id)
+          void this.verifyAppointment(id)
         }
       }
     })

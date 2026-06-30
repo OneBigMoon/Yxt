@@ -19,6 +19,9 @@ Page({
   onPullDownRefresh() {
     this.loadRecords().then(() => {
       wx.stopPullDownRefresh()
+    }).catch((err) => {
+      wx.stopPullDownRefresh()
+      console.error('核销记录下拉刷新失败:', err)
     })
   },
 

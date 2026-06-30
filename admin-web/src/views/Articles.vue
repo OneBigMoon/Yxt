@@ -116,11 +116,17 @@
 </template>
 
 <script setup>
-import { ref, shallowRef, onBeforeUnmount, onMounted } from 'vue'
+import { defineAsyncComponent, ref, shallowRef, onBeforeUnmount, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { articleApi, uploadFile } from '../api'
-import { Editor, Toolbar } from '@wangeditor/editor-for-vue'
 import '@wangeditor/editor/dist/css/style.css'
+
+const Editor = defineAsyncComponent(() => (
+  import('@wangeditor/editor-for-vue').then(module => module.Editor)
+))
+const Toolbar = defineAsyncComponent(() => (
+  import('@wangeditor/editor-for-vue').then(module => module.Toolbar)
+))
 
 const articles = ref([])
 const dialogVisible = ref(false)

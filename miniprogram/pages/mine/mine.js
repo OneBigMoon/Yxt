@@ -1,5 +1,5 @@
-const { getConfig, login } = require('../../utils/api')
-const { checkAuth, logout } = require('../../utils/auth')
+const { getConfig } = require('../../utils/api')
+const { checkAuth, logout, checkBlacklist } = require('../../utils/auth')
 
 Page({
   data: {
@@ -28,17 +28,17 @@ Page({
         this.setData({ userInfo, isLoggedIn: true, maskedPhone })
 
         // 实时检查黑名单状态
-        this.checkBlacklist()
+        this.checkBlacklistStatus()
       } else {
         this.setData({ userInfo: {}, isLoggedIn: false, maskedPhone: '' })
       }
     })
   },
 
-  async checkBlacklist() {
+  async checkBlacklistStatus() {
     try {
-      const res = await login({ type: 'login' })
-      if (res && res.is_blacklisted) {
+      const isBlacklisted = await checkBlacklist()
+      if (isBlacklisted) {
         wx.showModal({
           title: '账号异常',
           content: '您的账号注册信息有误，请联系门店处理',
@@ -106,6 +106,27 @@ Page({
           this.setData({ userInfo: {}, isLoggedIn: false })
           wx.showToast({ title: '已退出登录', icon: 'success' })
         }
+      }
+    })
+  },
+
+  copyOpenid() {
+    const openid = this.data.userInfo.openid
+    if (!openid) {
+      wx.showToast({
+        title: '请先登录',
+        icon: 'none'
+      })
+      return
+    }
+
+    wx.setClipboardData({
+      data: openid,
+      success: () => {
+        wx.showToast({ title: 'OpenID 已复制', icon: 'success' })
+      },
+      fail: () => {
+        wx.showToast({ title: '复制失败', icon: 'none' })
       }
     })
   }
