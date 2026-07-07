@@ -13,6 +13,10 @@ Page({
     // 从小程序码参数、普通参数或微信普通链接二维码 q 参数中获取 session_id
     const sessionId = this.getSessionIdFromOptions(options)
     if (!sessionId) {
+      this.setData({
+        pageTitle: '无效会话',
+        pageDesc: '二维码链接缺少登录标识，请返回并重新扫描'
+      })
       wx.showModal({
         title: '错误',
         content: '无效的登录会话',
@@ -26,6 +30,8 @@ Page({
 
     if (!/^[a-z0-9]{32}$/.test(sessionId)) {
       this.setData({
+        pageTitle: '参数异常',
+        pageDesc: '二维码参数异常，请联系管理员重新生成',
         errorMessage: '二维码参数异常，请联系管理员重新生成'
       })
       return
@@ -79,19 +85,25 @@ Page({
 
       if (res.result && res.result.code === 0) {
         const message = (res.result.data && res.result.data.message) || '确认成功'
+        const sessionType = (res.result.data && res.result.data.type) || ''
+        const isBind = sessionType === 'admin_bind' || message.includes('绑定') || message.includes('绑定成功')
         this.setData({
           confirmed: true,
           loading: false,
           errorMessage: '',
           resultMessage: message,
-          pageTitle: message.includes('绑定') ? '绑定成功' : '确认成功',
-          pageDesc: message.includes('绑定')
-            ? '当前微信已经成功绑定管理员账号'
-            : '管理后台登录已确认'
+          pageTitle: isBind ? '绑定成功' : '登录成功',
+          pageDesc: isBind
+            ? '当前微信已成功绑定管理员账号'
+            : '管理后台登录已确认，建议返回管理台页面'
         })
-        wx.showToast({ title: message.length > 7 ? '确认成功' : message, icon: 'success' })
+        wx.showToast({
+          title: isBind ? '绑定成功' : '登录确认成功',
+          icon: 'success',
+          duration: 1400
+        })
         setTimeout(() => {
-          wx.navigateBack()
+          this.returnToCallerOrHome()
         }, 2200)
       } else {
         const message = (res.result && res.result.message) || '请重新扫码'
@@ -120,5 +132,13 @@ Page({
       wx.showToast({ title: '网络请求失败，请稍后重试', icon: 'none' })
       this.setData({ loading: false })
     }
+  },
+
+  returnToCallerOrHome() {
+    wx.navigateBack({
+      fail: () => {
+        wx.switchTab({ url: '/pages/index/index' })
+      }
+    })
   }
 })

@@ -2,10 +2,27 @@
   <div class="page-container">
     <div class="page-header">
       <h2 class="page-title">健康小知识管理</h2>
-      <el-button type="primary" @click="showAddDialog">新建文章</el-button>
+      <el-button
+        v-if="canCreateArticle"
+        type="primary"
+        @click="showAddDialog"
+      >
+        新建文章
+      </el-button>
     </div>
 
-    <el-table :data="articles" border class="table-container">
+    <el-empty
+      v-if="loadError"
+      :description="errorMessage || '加载文章列表失败'"
+    >
+      <el-button type="primary" @click="loadData" style="margin-top: 12px;">
+        重试
+      </el-button>
+    </el-empty>
+
+    <el-empty v-else-if="!loading && articles.length === 0" description="暂无文章" />
+
+    <el-table v-else :data="articles" border class="table-container" v-loading="loading">
       <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
       <el-table-column label="封面图" width="100">
         <template #default="{ row }">
@@ -34,15 +51,30 @@
       </el-table-column>
       <el-table-column label="操作" width="250" fixed="right">
         <template #default="{ row }">
-          <el-button type="primary" link @click="editArticle(row)">编辑</el-button>
           <el-button
+            v-if="canUpdateArticle"
+            type="primary"
+            link
+            @click="editArticle(row)"
+          >
+            编辑
+          </el-button>
+          <el-button
+            v-if="canToggleArticle"
             :type="row.status === 'published' ? 'warning' : 'success'"
             link
             @click="toggleStatus(row)"
           >
             {{ row.status === 'published' ? '下架' : '发布' }}
           </el-button>
-          <el-button type="danger" link @click="deleteArticle(row)">删除</el-button>
+          <el-button
+            v-if="canDeleteArticle"
+            type="danger"
+            link
+            @click="deleteArticle(row)"
+          >
+            删除
+          </el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -108,7 +140,7 @@
       <template #footer>
         <div class="dialog-footer">
           <el-button @click="dialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="saveArticle">保存</el-button>
+          <el-button type="primary" :loading="submitLoading" @click="saveArticle">保存</el-button>
         </div>
       </template>
     </el-dialog>
@@ -116,10 +148,11 @@
 </template>
 
 <script setup>
-import { defineAsyncComponent, ref, shallowRef, onBeforeUnmount, onMounted } from 'vue'
+import { computed, defineAsyncComponent, ref, shallowRef, onBeforeUnmount, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { articleApi, uploadFile } from '../api'
 import '@wangeditor/editor/dist/css/style.css'
+import { hasActionPermission } from '../utils/permissions'
 
 const Editor = defineAsyncComponent(() => (
   import('@wangeditor/editor-for-vue').then(module => module.Editor)
@@ -132,6 +165,15 @@ const articles = ref([])
 const dialogVisible = ref(false)
 const isEdit = ref(false)
 const currentId = ref('')
+const loading = ref(false)
+const submitLoading = ref(false)
+const loadError = ref(false)
+const errorMessage = ref('')
+
+const canCreateArticle = computed(() => hasActionPermission('createArticle'))
+const canUpdateArticle = computed(() => hasActionPermission('updateArticle'))
+const canToggleArticle = computed(() => hasActionPermission('toggleArticleStatus'))
+const canDeleteArticle = computed(() => hasActionPermission('deleteArticle'))
 
 const formData = ref({
   title: '',
@@ -186,11 +228,19 @@ onMounted(() => {
 })
 
 async function loadData() {
+  loading.value = true
+  loadError.value = false
+  errorMessage.value = ''
   try {
     articles.value = await articleApi.getList()
   } catch (err) {
     console.error('加载文章数据失败:', err)
     ElMessage.error('加载文章数据失败')
+    loadError.value = true
+    errorMessage.value = err.message || '加载文章列表失败'
+    articles.value = []
+  } finally {
+    loading.value = false
   }
 }
 
@@ -225,6 +275,7 @@ async function saveArticle() {
     return
   }
 
+  submitLoading.value = true
   try {
     if (isEdit.value) {
       await articleApi.update(currentId.value, formData.value)
@@ -240,6 +291,8 @@ async function saveArticle() {
     loadData()
   } catch (err) {
     ElMessage.error('操作失败')
+  } finally {
+    submitLoading.value = false
   }
 }
 
@@ -270,7 +323,7 @@ async function deleteArticle(row) {
       cancelButtonText: '取消',
       type: 'warning'
     })
-    await articleApi.update(row._id, { status: 'deleted' })
+    await articleApi.delete(row._id)
     ElMessage.success('删除成功')
     loadData()
   } catch (err) {

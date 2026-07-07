@@ -12,7 +12,18 @@
       <el-button type="primary" @click="loadData">查询</el-button>
     </div>
 
-    <el-table :data="customers" border class="table-container">
+    <el-empty
+      v-if="loadError"
+      :description="errorMessage || '加载客户列表失败'"
+    >
+      <el-button type="primary" @click="loadData" style="margin-top: 12px;">
+        重试
+      </el-button>
+    </el-empty>
+
+    <el-empty v-else-if="!loading && customers.length === 0" description="暂无客户" />
+
+    <el-table v-else :data="customers" border class="table-container" v-loading="loading">
       <el-table-column label="头像" width="80">
         <template #default="{ row }">
           <el-avatar :size="40" :src="(row.avatar_url || row.avatarUrl) || undefined">
@@ -42,15 +53,30 @@
       <el-table-column label="操作" width="300" fixed="right">
         <template #default="{ row }">
           <el-button type="primary" link @click="viewAppointments(row)">预约记录</el-button>
-          <el-button type="primary" link @click="editNotes(row)">备注</el-button>
           <el-button
+            v-if="canUpdateCustomer"
+            type="primary"
+            link
+            @click="editNotes(row)"
+          >
+            备注
+          </el-button>
+          <el-button
+            v-if="canToggleBlacklist"
             :type="row.is_blacklisted ? 'success' : 'danger'"
             link
             @click="toggleBlacklist(row)"
           >
             {{ row.is_blacklisted ? '取消黑名单' : '加入黑名单' }}
           </el-button>
-          <el-button type="danger" link @click="deleteCustomer(row)">删除</el-button>
+          <el-button
+            v-if="canDeleteCustomer"
+            type="danger"
+            link
+            @click="deleteCustomer(row)"
+          >
+            删除
+          </el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -85,7 +111,8 @@
 
     <!-- 预约记录弹窗 -->
     <el-dialog v-model="appointmentsVisible" title="预约记录" width="800px">
-      <el-table :data="customerAppointments" border>
+      <el-empty v-if="customerAppointments.length === 0 && !appointmentsLoading" description="暂无预约记录" />
+      <el-table v-else :data="customerAppointments" border v-loading="appointmentsLoading">
         <el-table-column prop="date" label="日期" width="120" />
         <el-table-column prop="start_time" label="时间" width="100" />
         <el-table-column prop="service_names" label="服务项目" />
@@ -102,15 +129,23 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { customerApi } from '../api'
+import { customerApi, appointmentApi } from '../api'
+import { hasActionPermission } from '../utils/permissions'
 
 const customers = ref([])
 const filters = ref({ keyword: '' })
 const currentPage = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
+const loading = ref(false)
+const loadError = ref(false)
+const errorMessage = ref('')
+
+const canUpdateCustomer = computed(() => hasActionPermission('updateCustomer'))
+const canDeleteCustomer = computed(() => hasActionPermission('deleteCustomer'))
+const canToggleBlacklist = computed(() => hasActionPermission('toggleBlacklist'))
 
 const notesVisible = ref(false)
 const currentCustomerId = ref('')
@@ -118,12 +153,16 @@ const currentNotes = ref('')
 
 const appointmentsVisible = ref(false)
 const customerAppointments = ref([])
+const appointmentsLoading = ref(false)
 
 onMounted(() => {
   loadData()
 })
 
 async function loadData() {
+  loading.value = true
+  loadError.value = false
+  errorMessage.value = ''
   try {
     const params = {
       page: currentPage.value,
@@ -136,6 +175,11 @@ async function loadData() {
   } catch (err) {
     console.error('加载客户数据失败:', err)
     ElMessage.error('加载客户数据失败：' + (err.message || '请检查云开发匿名登录是否已开启'))
+    loadError.value = true
+    errorMessage.value = err.message || '加载客户列表失败'
+    customers.value = []
+  } finally {
+    loading.value = false
   }
 }
 
@@ -194,8 +238,28 @@ async function deleteCustomer(row) {
   }
 }
 
-function viewAppointments() {
-  ElMessage.info('功能暂不可用')
+async function viewAppointments(row) {
+  if (!row.openid) {
+    ElMessage.warning('该用户未绑定微信，无法查询预约记录')
+    return
+  }
+
+  appointmentsLoading.value = true
+  appointmentsVisible.value = true
+  customerAppointments.value = []
+  try {
+    const data = await appointmentApi.getList({
+      page: 1,
+      page_size: 50,
+      patient_openid: row.openid
+    })
+    customerAppointments.value = data.list || data || []
+  } catch (err) {
+    ElMessage.error(err.message || '查询预约记录失败')
+    appointmentsVisible.value = false
+  } finally {
+    appointmentsLoading.value = false
+  }
 }
 
 function formatTime(val) {

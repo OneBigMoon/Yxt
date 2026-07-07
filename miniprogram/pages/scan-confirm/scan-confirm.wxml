@@ -1,14 +1,16 @@
-<view class="confirm-page">
-  <view class="confirm-card">
+<view class="confirm-page yxt-page">
+  <image class="yxt-page-logo top" src="/images/logo.jpg" mode="aspectFit"></image>
+
+  <view class="confirm-card yxt-card">
     <van-icon
       name="{{errorMessage ? 'close' : confirmed ? 'checked' : 'scan'}}"
       size="64"
-      color="{{errorMessage ? '#ee0a24' : '#07c160'}}"
+      color="{{errorMessage ? '#ee0a24' : '#5a7846'}}"
     />
     <text class="title">{{pageTitle}}</text>
     <text class="desc">{{pageDesc}}</text>
 
-    <van-loading wx:if="{{loading}}" color="#07c160" size="32px">自动确认中...</van-loading>
+    <van-loading wx:if="{{loading}}" color="#5a7846" size="32px">自动确认中...</van-loading>
 
     <text class="success-message" wx:if="{{confirmed}}">{{resultMessage}}</text>
     <text class="error-message" wx:if="{{errorMessage}}">{{errorMessage}}</text>

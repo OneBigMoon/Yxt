@@ -25,8 +25,12 @@ Page({
     try {
       const appointments = await getMyAppointments({ id: id })
       if (appointments && appointments.length > 0) {
+        const appointment = appointments[0]
         this.setData({
-          appointment: appointments[0],
+          appointment: {
+            ...appointment,
+            display_verify_code: this.getDisplayVerifyCode(appointment)
+          },
           loading: false
         })
       } else {
@@ -70,5 +74,10 @@ Page({
         }
       }
     })
+  },
+
+  getDisplayVerifyCode(appointment) {
+    const code = appointment && (appointment.verify_code || appointment.qr_scene)
+    return /^\d{6}$/.test(String(code || '')) ? code : ''
   }
 })

@@ -1,5 +1,7 @@
 <view class="index-page">
-  <!-- 停业公告 -->
+  <image class="page-logo-watermark page-logo-watermark--top" src="/images/logo.jpg" mode="aspectFit"></image>
+  <image class="page-logo-watermark page-logo-watermark--bottom" src="/images/logo.jpg" mode="aspectFit"></image>
+
   <view class="notice-bar" wx:if="{{closureNotice}}">
     <van-notice-bar
       left-icon="info-o"
@@ -9,43 +11,102 @@
     />
   </view>
 
-  <!-- 健康小知识 -->
-  <view class="section">
+  <view class="business-card" wx:if="{{homeCardState.business_status}}">
+    <image class="business-card-mark" src="/images/logo.jpg" mode="aspectFit"></image>
+    <view class="business-card-head">
+      <view>
+        <text class="business-title">门诊营业状态</text>
+        <text class="business-subtitle">预约前先看今日与明日安排</text>
+      </view>
+      <button
+        wx:if="{{clinicInfo.latitude && clinicInfo.longitude}}"
+        class="business-nav-btn"
+        bindtap="openLocation"
+        hover-class="business-nav-btn--active"
+        aria-label="导航到店"
+      >
+        <view class="business-nav-icon">
+          <van-icon name="location" size="14" color="#5a7846" />
+        </view>
+        <text>导航</text>
+      </button>
+    </view>
+    <view class="store-sub-grid">
+      <view
+        class="business-status-item status-{{item.tone}}"
+        wx:for="{{businessStatusCards}}"
+        wx:key="label"
+      >
+        <view class="status-head">
+          <van-icon name="clock-o" size="18" color="{{item.iconColor}}" />
+          <text>{{item.label}}</text>
+        </view>
+        <text class="status-main">{{item.text}}</text>
+        <text class="status-sub">{{item.date}}</text>
+      </view>
+    </view>
+  </view>
+  <view class="section technician-section" wx:if="{{homeCardState.recommended_technicians && recommendedTechnicians.length > 0}}">
     <view class="section-title">
-      <text class="title-text">健康小知识</text>
+      <view class="title-left">
+        <view class="title-mark"></view>
+        <text class="title-text">优秀技师</text>
+      </view>
+      <text class="title-more">后台推荐</text>
+    </view>
+    <view class="technician-list">
+      <view class="technician-card" wx:for="{{recommendedTechnicians}}" wx:key="name">
+        <view class="technician-head">
+          <view class="technician-avatar"><van-icon name="user-o" size="22" color="#5a7846" /></view>
+          <text class="technician-name">{{item.name}}</text>
+        </view>
+        <text class="technician-specialty">{{item.specialty}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="section feature-section" wx:if="{{homeCardState.wellness_classroom}}">
+    <view class="section-title">
+      <view class="title-left">
+        <view class="title-mark"></view>
+        <text class="title-text">养生小课堂</text>
+      </view>
+      <text class="title-more" wx:if="{{articles.length > 0}}">最新 · 下滑加载</text>
     </view>
 
-    <view class="article-list">
+    <view class="feature-list" wx:if="{{articles.length > 0}}">
       <view
-        class="article-item card"
+        class="feature-card"
         wx:for="{{articles}}"
         wx:key="_id"
         bindtap="viewArticle"
         data-id="{{item._id}}"
       >
-        <image
-          class="article-cover"
-          src="{{item.cover_image || '/images/default-article.png'}}"
-          mode="aspectFill"
-          binderror="onCoverError"
-          data-index="{{index}}"
-        />
-        <view class="article-content">
-          <text class="article-title">{{item.title}}</text>
-          <text class="article-summary">{{item.summary}}</text>
-          <text class="article-time">{{item.created_at}}</text>
+        <view class="feature-cover-wrap">
+          <image
+            class="feature-cover"
+            src="{{item.cover_image || '/images/default-article.png'}}"
+            mode="aspectFill"
+            binderror="onCoverError"
+            data-index="{{index}}"
+          />
+        </view>
+        <view class="feature-caption">
+          <text class="feature-title">{{item.title}}</text>
+          <text class="feature-summary">{{item.summary || '健康文章'}}</text>
         </view>
       </view>
+    </view>
 
-      <van-empty
-        wx:if="{{articles.length === 0 && !loading}}"
-        description="暂无健康知识"
-        image="search"
-      />
+    <view class="article-empty-card" wx:if="{{articles.length === 0 && !loading}}">
+      <image class="article-empty-mark" src="/images/logo.jpg" mode="aspectFit"></image>
+      <view>
+        <text class="article-empty-title">健康推荐整理中</text>
+        <text class="article-empty-desc">后续可在管理后台发布养生小课堂文章。</text>
+      </view>
     </view>
   </view>
 
-  <!-- 加载状态 -->
   <van-loading
     wx:if="{{loading}}"
     class="loading"

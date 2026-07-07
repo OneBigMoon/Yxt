@@ -1,28 +1,64 @@
 <view class="login-page">
-  <view class="logo-section">
-    <image class="logo" src="/images/logo.jpg" mode="aspectFit"></image>
-    <text class="clinic-name">壹心堂</text>
-    <text class="slogan">传承中医文化，守护您的健康</text>
+  <view class="page-pattern"></view>
+
+  <view class="brand-section">
+    <image class="brand-logo" src="/images/logo.jpg" mode="aspectFit"></image>
+    <view class="brand-copy">
+      <text class="clinic-name">壹心堂</text>
+      <text class="slogan">中医门诊预约服务</text>
+    </view>
   </view>
 
-  <view class="login-section">
+  <view class="login-card">
+    <view class="card-head">
+      <text class="eyebrow">微信官方能力</text>
+      <text class="login-title">手机号快捷登录</text>
+      <text class="login-desc">授权手机号后自动建立客户档案，用于预约确认、到店核销和门店服务联系。</text>
+    </view>
+
+    <view class="flow-panel">
+      <view class="flow-item">
+        <view class="flow-icon">1</view>
+        <view class="flow-copy">
+          <text class="flow-title">授权手机号</text>
+          <text class="flow-desc">无需填写账号密码</text>
+        </view>
+      </view>
+      <view class="flow-item">
+        <view class="flow-icon">2</view>
+        <view class="flow-copy">
+          <text class="flow-title">自动建档</text>
+          <text class="flow-desc">后台客户管理可直接查看</text>
+        </view>
+      </view>
+      <view class="flow-item">
+        <view class="flow-icon">3</view>
+        <view class="flow-copy">
+          <text class="flow-title">身份识别</text>
+          <text class="flow-desc">活跃技师手机号自动进入工作台</text>
+        </view>
+      </view>
+    </view>
+
     <view class="agreement" bindtap="onAgreementTap">
       <van-checkbox value="{{agreed}}" shape="square" />
       <view class="agreement-label">
         <text>我已阅读并同意</text>
-        <text class="link" bindtap="showAgreement">《用户协议》</text>
+        <text class="link" catchtap="showAgreement">《用户协议》</text>
         <text>和</text>
-        <text class="link" bindtap="showPrivacy">《隐私政策》</text>
+        <text class="link" catchtap="showPrivacy">《隐私政策》</text>
       </view>
     </view>
 
     <button class="phone-login-btn" open-type="getPhoneNumber" bindgetphonenumber="onGetPhoneNumber"
       loading="{{loginLoading}}" disabled="{{!agreed}}">
-      微信快捷登录
+      {{loginLoading ? '正在登录...' : '微信手机号登录'}}
     </button>
+
+    <text class="login-tip">头像和昵称可在“我的资料”中选填，不影响预约。</text>
   </view>
 
   <view class="footer">
-    <text class="footer-text">壹心堂中医门诊 · 专业中医诊疗</text>
+    <text class="footer-text">传承中医文化 · 守护日常健康</text>
   </view>
 </view>

@@ -1,6 +1,8 @@
-<view class="detail-page">
+<view class="detail-page yxt-page yxt-page-with-tabbar yxt-page-with-action">
+  <image class="yxt-page-logo top" src="/images/logo.jpg" mode="aspectFit"></image>
+
   <!-- 预约信息 -->
-  <view class="info-section card">
+  <view class="info-section yxt-card">
     <view class="info-header">
       <text class="info-title">预约信息</text>
       <text class="status-{{appointment.status}}">
@@ -37,8 +39,8 @@
   </view>
 
   <!-- 核销码区域 -->
-  <view class="qr-section card" wx:if="{{appointment.status === 'pending'}}">
-    <view class="qr-title">出示核销码</view>
+  <view class="qr-section yxt-card" wx:if="{{appointment.status === 'pending'}}">
+    <view class="qr-title">出示预约二维码</view>
     <image
       wx:if="{{appointment.qr_code}}"
       class="qr-code"
@@ -47,9 +49,14 @@
       show-menu-by-longpress
     ></image>
     <view wx:else class="qr-fallback">
-      <text class="qr-id">{{appointment.qr_scene || appointment._id}}</text>
+      <text class="qr-fallback-title">二维码生成中</text>
+      <text class="qr-fallback-desc">可先出示下方 6 位核销码</text>
     </view>
-    <text class="qr-tip">请向技师出示此核销码</text>
+    <view class="verify-code-card">
+      <text class="verify-code-label">6 位核销码</text>
+      <text class="verify-code">{{appointment.display_verify_code || '请刷新'}}</text>
+    </view>
+    <text class="qr-tip">到店后请向技师出示，完成核销</text>
   </view>
 
   <!-- 操作按钮 -->
@@ -74,4 +81,18 @@
   >
     加载中...
   </van-loading>
+  <view class="yxt-lite-tabbar">
+    <navigator class="yxt-lite-tabbar-item " url="/pages/index/index" open-type="switchTab">
+      <van-icon name="wap-home-o" size="22" />
+      <text>首页</text>
+    </navigator>
+    <navigator class="yxt-lite-tabbar-item " url="/pages/booking/booking" open-type="switchTab">
+      <van-icon name="calendar-o" size="22" />
+      <text>服务</text>
+    </navigator>
+    <navigator class="yxt-lite-tabbar-item active" url="/pages/mine/mine" open-type="switchTab">
+      <van-icon name="user-o" size="22" />
+      <text>会员</text>
+    </navigator>
+  </view>
 </view>

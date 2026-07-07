@@ -27,6 +27,21 @@ const fullLogin = async (userInfo, phoneCode) => {
   return syncUserToGlobal(user)
 }
 
+const refreshSession = async () => {
+  const localUser = wx.getStorageSync('userInfo')
+  if (!localUser || !localUser.openid) {
+    return null
+  }
+
+  const user = await callFunction('login', { type: 'refresh' })
+  if (!user) {
+    logout()
+    return null
+  }
+
+  return syncUserToGlobal(user)
+}
+
 const updateProfile = async (nickName, avatarUrl) => {
   const user = await callFunction('login', {
     type: 'updateProfile',
@@ -46,22 +61,28 @@ const checkBlacklist = async () => {
     return false
   }
 
-  const latest = await callFunction('login', { type: 'login' })
+  const latest = await refreshSession()
   return Boolean(latest && latest.is_blacklisted)
 }
 
-const checkAuth = () => {
-  return new Promise((resolve) => {
-    const userInfo = wx.getStorageSync('userInfo')
-    if (userInfo) {
-      app.globalData.userInfo = userInfo
-      app.globalData.role = userInfo.role
-      app.globalData.openid = userInfo.openid
-      resolve(userInfo)
-    } else {
-      resolve(null)
-    }
-  })
+const checkAuth = async (options = {}) => {
+  const userInfo = wx.getStorageSync('userInfo')
+  if (!userInfo) {
+    return null
+  }
+
+  syncUserToGlobal(userInfo)
+
+  if (!options.refresh) {
+    return userInfo
+  }
+
+  try {
+    return await refreshSession()
+  } catch (err) {
+    console.warn('刷新登录态失败:', err)
+    return userInfo
+  }
 }
 
 const logout = () => {
@@ -73,6 +94,7 @@ const logout = () => {
 
 module.exports = {
   fullLogin,
+  refreshSession,
   updateProfile,
   checkBlacklist,
   checkAuth,

@@ -59,7 +59,16 @@
       </el-col>
     </el-row>
 
-    <el-table :data="commissions" border>
+    <el-empty
+      v-if="loadError"
+      :description="errorMessage || '加载提成统计失败'"
+    >
+      <el-button type="primary" @click="loadData" style="margin-top: 12px;">
+        重试
+      </el-button>
+    </el-empty>
+
+    <el-table v-else :data="commissions" border v-loading="loading">
       <el-table-column prop="date" label="日期" width="120" />
       <el-table-column prop="technician_name" label="技师" width="120" />
       <el-table-column prop="service_name" label="服务项目" width="150" />
@@ -113,6 +122,10 @@ const filters = ref({ technician_id: '' })
 const currentPage = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
+const loading = ref(false)
+const loadError = ref(false)
+const errorMessage = ref('')
+const summaryLoading = ref(false)
 
 const summary = ref({
   total: 0,
@@ -135,6 +148,9 @@ async function loadTechnicians() {
 }
 
 async function loadData() {
+  loading.value = true
+  loadError.value = false
+  errorMessage.value = ''
   try {
     const params = {
       page: currentPage.value,
@@ -148,16 +164,23 @@ async function loadData() {
     }
 
     const data = await commissionApi.getList(params)
-    commissions.value = data.list || data
+    commissions.value = data.list || data || []
     total.value = data.total || commissions.value.length
-    loadSummary()
+    await loadSummary()
   } catch (err) {
     console.error('加载提成数据失败:', err)
+    loadError.value = true
+    errorMessage.value = err.message || '加载提成数据失败'
     ElMessage.error('加载提成数据失败')
+    commissions.value = []
+    total.value = 0
+  } finally {
+    loading.value = false
   }
 }
 
 async function loadSummary() {
+  summaryLoading.value = true
   try {
     const params = { ...filters.value }
     if (dateRange.value && dateRange.value.length === 2) {
@@ -169,7 +192,9 @@ async function loadSummary() {
     summary.value = { total: (data && data.total) || 0, count: (data && data.count) || 0 }
   } catch (err) {
     console.error('加载统计失败:', err)
-    ElMessage.error('加载统计数据失败')
+    ElMessage.error('加载统计失败')
+  } finally {
+    summaryLoading.value = false
   }
 }
 

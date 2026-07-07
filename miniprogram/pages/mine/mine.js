@@ -5,7 +5,11 @@ Page({
   data: {
     userInfo: {},
     isLoggedIn: false,
-    clinicInfo: {}
+    clinicInfo: {},
+    businessHourLines: [],
+    maskedPhone: '',
+    userDisplayName: '',
+    facilities: []
   },
 
   onLoad() {
@@ -17,22 +21,26 @@ Page({
   },
 
   loadUserInfo() {
-    checkAuth().then(userInfo => {
+    checkAuth({ refresh: true }).then(userInfo => {
       if (userInfo) {
-        let maskedPhone = ''
-        if (userInfo.phone && userInfo.phone.length === 11) {
-          maskedPhone = userInfo.phone.substring(0, 3) + '****' + userInfo.phone.substring(7)
-        } else {
-          maskedPhone = userInfo.phone || ''
-        }
-        this.setData({ userInfo, isLoggedIn: true, maskedPhone })
+        const maskedPhone = this.maskPhone(userInfo.phone)
+        const hasCustomName = userInfo.nick_name && userInfo.nick_name !== '微信用户'
+        const userDisplayName = hasCustomName ? userInfo.nick_name : (maskedPhone || '已登录')
+        this.setData({ userInfo, isLoggedIn: true, maskedPhone, userDisplayName })
 
         // 实时检查黑名单状态
         this.checkBlacklistStatus()
       } else {
-        this.setData({ userInfo: {}, isLoggedIn: false, maskedPhone: '' })
+        this.setData({ userInfo: {}, isLoggedIn: false, maskedPhone: '', userDisplayName: '' })
       }
     })
+  },
+
+  maskPhone(phone) {
+    if (phone && phone.length === 11) {
+      return phone.substring(0, 3) + '****' + phone.substring(7)
+    }
+    return phone || ''
   },
 
   async checkBlacklistStatus() {
@@ -41,12 +49,12 @@ Page({
       if (isBlacklisted) {
         wx.showModal({
           title: '账号异常',
-          content: '您的账号注册信息有误，请联系门店处理',
+          content: '该账号暂无法预约，请联系门店处理',
           showCancel: false,
           confirmText: '知道了',
           success: () => {
             logout()
-            this.setData({ userInfo: {}, isLoggedIn: false, maskedPhone: '' })
+            this.setData({ userInfo: {}, isLoggedIn: false, maskedPhone: '', userDisplayName: '' })
           }
         })
       }
@@ -58,15 +66,73 @@ Page({
   async loadConfig() {
     try {
       const config = await getConfig()
-      this.setData({ clinicInfo: config.store || {} })
+      const storeInfo = config.store || {}
+      const businessHourLines = []
+      if (config.schedule) {
+        const dayNames = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日']
+        const periods = []
+        for (let day = 1; day <= 7; day++) {
+          const hours = config.schedule[day]
+          if (Array.isArray(hours) && hours.length > 0) {
+            const times = hours.map(p => `${p.start}-${p.end}`).join('、')
+            periods.push(`${dayNames[day]} ${times}`)
+            businessHourLines.push({ day: dayNames[day], time: times })
+          }
+        }
+        if (periods.length > 0) {
+          storeInfo.business_hours = periods.join('；')
+        }
+      }
+      this.setData({
+        clinicInfo: storeInfo,
+        businessHourLines,
+        facilities: this.normalizeFacilities(config.facilities)
+      })
     } catch (err) {
       console.error('获取配置失败:', err)
       wx.showToast({ title: '获取门店信息失败', icon: 'none' })
     }
   },
 
+  normalizeFacilities(items) {
+    const fallback = [
+      { name: '门口停车', icon: 'logistics', enabled: true, sort: 1 },
+      { name: '等候座椅', icon: 'friends-o', enabled: true, sort: 2 },
+      { name: '可拨门店', icon: 'phone-o', enabled: true, sort: 3 }
+    ]
+    const source = Array.isArray(items) ? items : fallback
+    return source
+      .filter(item => item && item.enabled !== false && item.name)
+      .sort((a, b) => Number(a.sort || 0) - Number(b.sort || 0))
+      .map(item => ({
+        name: String(item.name || '').trim(),
+        icon: String(item.icon || 'shop-o').trim()
+      }))
+      .slice(0, 6)
+  },
+
   goLogin() {
     wx.navigateTo({ url: '/pages/login/login' })
+  },
+
+  handleUserTap() {
+    if (this.data.isLoggedIn) {
+      this.goProfile()
+    } else {
+      this.goLogin()
+    }
+  },
+
+  goProfile() {
+    if (!this.data.isLoggedIn) {
+      this.goLogin()
+      return
+    }
+    wx.navigateTo({ url: '/pages/profile/profile' })
+  },
+
+  goBooking() {
+    wx.switchTab({ url: '/pages/booking/booking' })
   },
 
   goMyAppointments() {
@@ -103,30 +169,9 @@ Page({
       success: (res) => {
         if (res.confirm) {
           logout()
-          this.setData({ userInfo: {}, isLoggedIn: false })
+          this.setData({ userInfo: {}, isLoggedIn: false, maskedPhone: '', userDisplayName: '' })
           wx.showToast({ title: '已退出登录', icon: 'success' })
         }
-      }
-    })
-  },
-
-  copyOpenid() {
-    const openid = this.data.userInfo.openid
-    if (!openid) {
-      wx.showToast({
-        title: '请先登录',
-        icon: 'none'
-      })
-      return
-    }
-
-    wx.setClipboardData({
-      data: openid,
-      success: () => {
-        wx.showToast({ title: 'OpenID 已复制', icon: 'success' })
-      },
-      fail: () => {
-        wx.showToast({ title: '复制失败', icon: 'none' })
       }
     })
   }

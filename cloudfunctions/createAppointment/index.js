@@ -89,11 +89,12 @@ exports.main = async (event, context) => {
       .where({ status: 'active' })
       .get()
     let techCount = techRes.data.length
+    const activeTechnicianIds = new Set(techRes.data.map(tech => tech._id).filter(Boolean))
 
     const daysOffRes = await db.collection('tech_days_off')
       .where({ date: date })
       .get()
-    techCount -= daysOffRes.data.length
+    techCount -= countActiveTechnicianDaysOff(daysOffRes.data, activeTechnicianIds)
     techCount = Math.max(techCount, 0)
 
     // 4. 检查该时段已有预约数
@@ -125,6 +126,7 @@ exports.main = async (event, context) => {
     }
 
     // 5. 创建预约记录
+    const verifyCode = await generateUniqueVerifyCode()
     const appointmentData = {
       patient_openid: OPENID,
       services: services,
@@ -134,7 +136,8 @@ exports.main = async (event, context) => {
       start_time: start_time,
       end_time: end_time,
       status: 'pending',
-      qr_scene: '',
+      verify_code: verifyCode,
+      qr_scene: verifyCode,
       verified_at: '',
       cancel_reason: '',
       created_at: db.serverDate(),
@@ -145,36 +148,19 @@ exports.main = async (event, context) => {
       data: appointmentData
     })
 
-    // 6. 更新预约记录的qr_scene为_id
-    await db.collection('appointments')
-      .doc(addRes._id)
-      .update({
-        data: {
-          qr_scene: addRes._id
-        }
-      })
-
-    // 7. 生成小程序太阳码
+    // 6. 生成小程序码
     let qrCode = ''
     try {
-      const qrRes = await cloud.openapi.wxacode.getUnlimited({
-        scene: addRes._id.substring(0, 32), // scene最长32字符
-        page: 'pages/tech-home/tech-home'
-      })
-
-      // 上传到云存储
-      const uploadRes = await cloud.uploadFile({
-        cloudPath: `qrcodes/${addRes._id}.jpg`,
-        fileContent: qrRes.buffer
-      })
-      qrCode = uploadRes.fileID
+      qrCode = await createAppointmentQrCode(addRes._id, verifyCode)
 
       // 更新预约记录
-      await db.collection('appointments')
-        .doc(addRes._id)
-        .update({
-          data: { qr_code: qrCode }
-        })
+      if (qrCode) {
+        await db.collection('appointments')
+          .doc(addRes._id)
+          .update({
+            data: { qr_code: qrCode }
+          })
+      }
     } catch (qrErr) {
       console.error('生成二维码失败:', qrErr)
     }
@@ -212,6 +198,48 @@ exports.main = async (event, context) => {
   }
 }
 
+async function generateUniqueVerifyCode() {
+  for (let i = 0; i < 8; i++) {
+    const code = randomVerifyCode()
+    const res = await db.collection('appointments')
+      .where({
+        verify_code: code,
+        status: 'pending'
+      })
+      .limit(1)
+      .get()
+
+    if (!res.data || res.data.length === 0) {
+      return code
+    }
+  }
+
+  throw new Error('核销码生成失败，请重新提交')
+}
+
+function randomVerifyCode() {
+  return String(Math.floor(Math.random() * 1000000)).padStart(6, '0')
+}
+
+async function createAppointmentQrCode(appointmentId, verifyCode) {
+  const qrRes = await cloud.callFunction({
+    name: 'admin',
+    data: {
+      action: 'createAppointmentQrCode',
+      data: {
+        appointment_id: appointmentId,
+        scene: verifyCode
+      }
+    }
+  })
+
+  if (!qrRes || !qrRes.result || qrRes.result.code !== 0) {
+    throw new Error((qrRes && qrRes.result && qrRes.result.message) || '二维码生成失败')
+  }
+
+  return qrRes.result.data && qrRes.result.data.file_id ? qrRes.result.data.file_id : ''
+}
+
 // 时间字符串转分钟数
 function timeToMinutes(timeStr) {
   if (typeof timeStr !== 'string') {
@@ -222,6 +250,12 @@ function timeToMinutes(timeStr) {
     return null
   }
   return hours * 60 + minutes
+}
+
+function countActiveTechnicianDaysOff(daysOffRecords, activeTechnicianIds) {
+  return (daysOffRecords || []).filter(record =>
+    record && activeTechnicianIds.has(record.technician_id)
+  ).length
 }
 
 function parseYmdToDate(dateStr) {

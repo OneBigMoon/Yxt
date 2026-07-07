@@ -8,7 +8,7 @@ Page({
   },
 
   async onLoad() {
-    const userInfo = await checkAuth()
+    const userInfo = await checkAuth({ refresh: true })
     if (!userInfo || userInfo.role !== 'technician') {
       wx.redirectTo({ url: '/pages/login/login' })
       return

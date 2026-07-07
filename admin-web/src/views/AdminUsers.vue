@@ -2,12 +2,29 @@
   <div class="page-container">
     <div class="page-header">
       <h2 class="page-title">管理员账号</h2>
-      <el-button type="primary" @click="openAdd">添加管理员</el-button>
+      <el-button
+        v-if="canCreateAdminUser"
+        type="primary"
+        @click="openAdd"
+      >
+        添加管理员
+      </el-button>
     </div>
 
     <p class="page-desc">先创建管理员账号并设置权限档位，再用绑定二维码关联微信。账号密码登录和微信扫码登录都会使用这里的账号配置。</p>
 
-    <el-table :data="users" border class="table-container" v-loading="loading">
+    <el-empty
+      v-if="loadError"
+      :description="errorMessage || '加载管理员账号失败'"
+    >
+      <el-button type="primary" @click="loadData" style="margin-top: 12px;">
+        重试
+      </el-button>
+    </el-empty>
+
+    <el-empty v-else-if="!loading && users.length === 0" description="暂无管理员账号" />
+
+    <el-table v-else :data="users" border class="table-container" v-loading="loading">
       <el-table-column prop="username" label="管理员账号" width="160" />
       <el-table-column prop="name" label="姓名" width="150" />
       <el-table-column label="权限档位" width="130">
@@ -38,18 +55,45 @@
           {{ formatTime(row.created_at) }}
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="260" fixed="right">
+      <el-table-column label="上次登录" width="180">
         <template #default="{ row }">
-          <el-button type="primary" link @click="openEdit(row)">编辑</el-button>
-          <el-button type="success" link @click="openBind(row)">绑定微信</el-button>
+          {{ formatTime(row.last_login_at || row.updated_at) }}
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="280" fixed="right">
+        <template #default="{ row }">
           <el-button
+            v-if="canUpdateAdminUser"
+            type="primary"
+            link
+            @click="openEdit(row)"
+          >
+            编辑
+          </el-button>
+          <el-button
+            v-if="canBindAdminUser"
+            type="success"
+            link
+            @click="openBind(row)"
+          >
+            绑定微信
+          </el-button>
+          <el-button
+            v-if="canToggleAdminUser"
             :type="row.status === 'active' ? 'warning' : 'success'"
             link
             @click="toggleStatus(row)"
           >
             {{ row.status === 'active' ? '停用' : '启用' }}
           </el-button>
-          <el-button type="danger" link @click="removeUser(row)">删除</el-button>
+          <el-button
+            v-if="canDeleteAdminUser"
+            type="danger"
+            link
+            @click="removeUser(row)"
+          >
+            删除
+          </el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -116,14 +160,16 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onUnmounted } from 'vue'
+import { computed, reactive, ref, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox, ElText } from 'element-plus'
 import dayjs from 'dayjs'
 import { adminUserApi } from '../api'
-import { ROLE_OPTIONS, getRoleLabel } from '../utils/permissions'
+import { getAdminInfo, ROLE_OPTIONS, getRoleLabel, hasActionPermission } from '../utils/permissions'
 
 const users = ref([])
 const loading = ref(false)
+const loadError = ref(false)
+const errorMessage = ref('')
 const dialogVisible = ref(false)
 const submitting = ref(false)
 const isEdit = ref(false)
@@ -137,6 +183,14 @@ const bindExpiresAt = ref(0)
 const bindAccount = reactive({ _id: '', username: '' })
 let bindTimer = null
 let bindExpireTimer = null
+
+const canCreateAdminUser = computed(() => hasActionPermission('addAdminUser'))
+const canUpdateAdminUser = computed(() => hasActionPermission('updateAdminUser'))
+const canBindAdminUser = computed(() => hasActionPermission('createAdminBindSession'))
+const canToggleAdminUser = computed(() => canUpdateAdminUser.value)
+const canDeleteAdminUser = computed(() => hasActionPermission('removeAdminUser'))
+const currentAdminId = computed(() => getAdminInfo().admin_id || '')
+const roleSet = new Set(ROLE_OPTIONS.map(item => item.value))
 
 const form = reactive({
   username: '',
@@ -159,21 +213,38 @@ function resetForm() {
 function formatTime(time) {
   if (!time) return '-'
   const d = time.$date ? new Date(time.$date) : new Date(time)
+  if (Number.isNaN(d.getTime())) {
+    return '-'
+  }
   return dayjs(d).format('YYYY-MM-DD HH:mm')
+}
+
+function getPermissionWarning(text) {
+  ElMessage.warning(text)
 }
 
 async function loadData() {
   loading.value = true
+  loadError.value = false
+  errorMessage.value = ''
   try {
     users.value = await adminUserApi.getList()
   } catch (err) {
     ElMessage.error('加载失败：' + (err.message || '未知错误'))
+    loadError.value = true
+    errorMessage.value = err.message || '加载管理员账号失败'
+    users.value = []
   } finally {
     loading.value = false
   }
 }
 
 function openAdd() {
+  if (!canCreateAdminUser.value) {
+    getPermissionWarning('暂无权限添加管理员')
+    return
+  }
+
   isEdit.value = false
   editingId.value = ''
   resetForm()
@@ -181,11 +252,16 @@ function openAdd() {
 }
 
 function openEdit(row) {
+  if (!canUpdateAdminUser.value) {
+    getPermissionWarning('暂无权限编辑管理员')
+    return
+  }
+
   isEdit.value = true
   editingId.value = row._id
   form.username = row.username || ''
   form.password = ''
-  form.role = row.role || 'super_admin'
+  form.role = row.role || 'manager'
   form.name = row.name || ''
   form.openid = row.openid || ''
   form.remark = row.remark || ''
@@ -193,35 +269,60 @@ function openEdit(row) {
 }
 
 async function submitForm() {
-  if (!form.username.trim()) {
+  const username = form.username.trim()
+  const role = form.role
+  const password = (form.password || '').trim()
+
+  if (!username) {
     ElMessage.warning('请输入管理员账号')
     return
   }
-  if (!isEdit.value && !form.password) {
+
+  if (!roleSet.has(role)) {
+    ElMessage.warning('请选择正确的权限档位')
+    return
+  }
+
+  if (!isEdit.value && !password) {
     ElMessage.warning('请输入密码')
     return
   }
 
+  if (!isEdit.value && password.length < 6) {
+    ElMessage.warning('密码长度不能少于 6 位')
+    return
+  }
+
+  if (isEdit.value && !canUpdateAdminUser.value) {
+    getPermissionWarning('暂无权限编辑管理员')
+    return
+  }
+  if (!isEdit.value && !canCreateAdminUser.value) {
+    getPermissionWarning('暂无权限添加管理员')
+    return
+  }
+
   submitting.value = true
+  const action = isEdit.value ? '更新' : '添加'
   try {
     if (isEdit.value) {
       const payload = {
-        username: form.username.trim(),
-        role: form.role,
+        username,
+        role,
         name: form.name.trim(),
         openid: form.openid.trim(),
         remark: form.remark.trim()
       }
-      if (form.password) {
-        payload.password = form.password
+      if (password) {
+        payload.password = password
       }
       await adminUserApi.update(editingId.value, payload)
       ElMessage.success('更新成功')
     } else {
       await adminUserApi.add({
-        username: form.username.trim(),
-        password: form.password,
-        role: form.role,
+        username,
+        password,
+        role,
         name: form.name.trim(),
         openid: form.openid.trim(),
         remark: form.remark.trim()
@@ -231,13 +332,18 @@ async function submitForm() {
     dialogVisible.value = false
     loadData()
   } catch (err) {
-    ElMessage.error((isEdit.value ? '更新' : '添加') + '失败：' + (err.message || '未知错误'))
+    ElMessage.error(`${action}失败：` + (err.message || '未知错误'))
   } finally {
     submitting.value = false
   }
 }
 
 async function openBind(row) {
+  if (!canBindAdminUser.value) {
+    getPermissionWarning('暂无权限绑定微信')
+    return
+  }
+
   bindAccount._id = row._id
   bindAccount.username = row.username || ''
   bindDialogVisible.value = true
@@ -250,7 +356,9 @@ async function createBindQr() {
   }
 
   bindLoading.value = true
+  bindSessionId.value = ''
   stopBindPolling()
+  stopBindExpireTimer()
   bindQrCodeUrl.value = ''
   bindStatusText.value = '正在生成二维码...'
 
@@ -332,17 +440,45 @@ function handleBindDialogClosed() {
 }
 
 async function toggleStatus(row) {
+  if (!canToggleAdminUser.value) {
+    getPermissionWarning('暂无权限变更管理员状态')
+    return
+  }
+
+  if (row._id === currentAdminId.value) {
+    ElMessage.warning('不能对当前登录账号进行停用/启用操作')
+    return
+  }
+
   const nextStatus = row.status === 'active' ? 'inactive' : 'active'
+  const action = nextStatus === 'active' ? '启用' : '停用'
   try {
+    await ElMessageBox.confirm(`确定要${action}管理员「${row.username}」吗？`, '确认操作', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
     await adminUserApi.updateStatus(row._id, nextStatus)
     ElMessage.success(nextStatus === 'active' ? '已启用' : '已停用')
     loadData()
   } catch (err) {
-    ElMessage.error('状态更新失败：' + (err.message || '未知错误'))
+    if (err !== 'cancel') {
+      ElMessage.error('状态更新失败：' + (err.message || '未知错误'))
+    }
   }
 }
 
 async function removeUser(row) {
+  if (!canDeleteAdminUser.value) {
+    getPermissionWarning('暂无权限删除管理员')
+    return
+  }
+
+  if (row._id === currentAdminId.value) {
+    ElMessage.warning('不能删除当前登录账号')
+    return
+  }
+
   try {
     await ElMessageBox.confirm(
       `确定要删除管理员「${row.username}」吗？`,

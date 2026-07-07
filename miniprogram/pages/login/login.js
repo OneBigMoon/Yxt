@@ -1,17 +1,13 @@
-const { fullLogin, updateProfile, checkAuth } = require('../../utils/auth')
+const { fullLogin, checkAuth } = require('../../utils/auth')
 
 Page({
   data: {
     agreed: false,
-    loginLoading: false,
-    showProfileForm: false,
-    avatarUrl: '',
-    nickName: '',
-    loggedRole: ''
+    loginLoading: false
   },
 
   onLoad() {
-    checkAuth().then(userInfo => {
+    checkAuth({ refresh: true }).then(userInfo => {
       if (userInfo) {
         this.routeByRole(userInfo.role)
       }
@@ -22,18 +18,18 @@ Page({
     this.setData({ agreed: !this.data.agreed })
   },
 
-  onChooseAvatar(e) {
-    const { avatarUrl } = e.detail
-    this.setData({ avatarUrl })
-  },
-
-  onNicknameChange(e) {
-    this.setData({ nickName: e.detail.value })
-  },
-
   async onGetPhoneNumber(e) {
+    if (!this.data.agreed) {
+      wx.showToast({ title: '请先勾选同意协议', icon: 'none' })
+      return
+    }
+
+    if (this.data.loginLoading) {
+      return
+    }
+
     if (e.detail.errMsg !== 'getPhoneNumber:ok') {
-      wx.showToast({ title: '需要授权手机号才能登录', icon: 'none' })
+      wx.showToast({ title: '需要手机号用于预约确认', icon: 'none' })
       return
     }
 
@@ -47,52 +43,27 @@ Page({
         this.setData({ loginLoading: false })
         wx.showModal({
           title: '账号异常',
-          content: '您的账号注册信息有误，请联系门店处理',
+          content: '该账号暂无法预约，请联系门店处理',
           showCancel: false,
           confirmText: '知道了'
         })
         return
       }
 
-      if (result.isNewUser && result.role === 'technician') {
-        this.setData({ loginLoading: false })
-        wx.showToast({ title: '登录成功', icon: 'success' })
-        setTimeout(() => {
-          this.routeByRole('technician')
-        }, 1000)
-      } else if (result.isNewUser) {
-        this.setData({ loginLoading: false, loggedRole: result.role || 'patient' })
-        wx.navigateTo({ url: '/pages/profile/profile' })
-      } else {
-        wx.showToast({ title: '登录成功', icon: 'success' })
-        setTimeout(() => {
-          this.routeByRole(result.role)
-        }, 1000)
-      }
-    } catch (err) {
-      console.error('登录失败:', err)
-      wx.showToast({ title: '登录失败，请重试', icon: 'none' })
-      this.setData({ loginLoading: false })
-    }
-  },
+      const toastTitle = result.role === 'technician'
+        ? '技师身份已识别'
+        : (result.isNewUser ? '客户档案已建立' : '登录成功')
 
-  async onCompleteProfile() {
-    this.setData({ loginLoading: true })
-
-    try {
-      await updateProfile(
-        this.data.nickName || '微信用户',
-        this.data.avatarUrl || ''
-      )
-
-      wx.showToast({ title: '注册成功', icon: 'success' })
+      wx.showToast({ title: toastTitle, icon: 'success' })
       setTimeout(() => {
-        this.routeByRole(this.data.loggedRole || 'patient')
+        this.routeByRole(result.role)
       }, 1000)
     } catch (err) {
-      console.error('注册失败:', err)
-      wx.showToast({ title: '注册失败，请重试', icon: 'none' })
-    } finally {
+      console.error('登录失败:', err)
+      wx.showToast({
+        title: err && err.message ? err.message : '登录失败，请重试',
+        icon: 'none'
+      })
       this.setData({ loginLoading: false })
     }
   },
@@ -116,7 +87,7 @@ Page({
   showPrivacy() {
     wx.showModal({
       title: '隐私政策',
-      content: '1. 我们仅收集预约服务所需的必要信息（手机号、昵称）。\n2. 您的个人信息仅用于预约管理和门店服务，不会提供给第三方。\n3. 您可随时联系我们删除您的个人数据。\n4. 如有疑问请联系门店客服。',
+      content: '1. 我们仅收集预约服务所需的必要信息，包括手机号、可选昵称、可选头像和预约记录。\n2. 手机号用于登录识别、预约管理、门店服务联系和订单核销。\n3. 头像和昵称仅用于个人资料展示，您可不填写。\n4. 门店导航仅展示门店位置，不会收集您的实时定位。\n5. 您可联系门店查询、更正或删除个人数据。',
       showCancel: false
     })
   }

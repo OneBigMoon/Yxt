@@ -1,7 +1,7 @@
 <template>
   <div class="dashboard">
     <!-- 今日营业状态 -->
-    <el-card shadow="hover" class="status-card">
+    <el-card shadow="hover" class="status-card" v-loading="loading">
       <div class="status-header">
         <div class="status-info">
           <el-icon :size="20" :color="isClosed ? '#F56C6C' : '#67C23A'">
@@ -13,12 +13,43 @@
           </el-tag>
           <span v-if="closureReason" class="closure-reason">（{{ closureReason }}）</span>
         </div>
-        <el-button type="primary" @click="showClosureDialog">设置停业</el-button>
+          <el-button
+            v-if="canSetClosure"
+            type="primary"
+            @click="showClosureDialog"
+          >
+            设置停业
+          </el-button>
       </div>
     </el-card>
 
+    <div v-if="!loadError" class="dashboard-metrics">
+      <el-card class="metric-card metric-total" shadow="never">
+        <span>今日预约</span>
+        <strong>{{ todayOverview.total }}</strong>
+      </el-card>
+      <el-card class="metric-card metric-pending" shadow="never">
+        <span>待到店/待核销</span>
+        <strong>{{ todayOverview.pending }}</strong>
+      </el-card>
+      <el-card class="metric-card metric-completed" shadow="never">
+        <span>已完成</span>
+        <strong>{{ todayOverview.completed }}</strong>
+      </el-card>
+    </div>
+
+    <el-empty
+      v-if="loadError"
+      :description="errorMessage || '加载仪表盘失败'"
+      style="margin-top: 20px;"
+    >
+      <el-button type="primary" @click="loadData" style="margin-top: 12px;">
+        重试
+      </el-button>
+    </el-empty>
+
     <!-- 今日预约列表 -->
-    <el-card shadow="hover" style="margin-top: 20px;">
+    <el-card v-else shadow="hover" style="margin-top: 20px;" v-loading="loading">
       <template #header>
         <div class="card-header">
           <span>今日预约列表</span>
@@ -68,7 +99,13 @@
       <template #footer>
         <div class="dialog-footer">
           <el-button @click="closureDialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="saveClosure">确定停业</el-button>
+          <el-button
+            type="primary"
+            :loading="saveClosureLoading"
+            @click="saveClosure"
+          >
+            确定停业
+          </el-button>
         </div>
       </template>
     </el-dialog>
@@ -76,14 +113,29 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { computed, onMounted, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { appointmentApi, restApi } from '../api'
+import { hasActionPermission } from '../utils/permissions'
 
 const todayAppointments = ref([])
+
+const todayOverview = computed(() => {
+  const list = todayAppointments.value || []
+  return {
+    total: list.length,
+    pending: list.filter(item => item.status === 'pending' || item.status === 'confirmed').length,
+    completed: list.filter(item => item.status === 'completed').length
+  }
+})
 const todayHoliday = ref(null)
 const closureDialogVisible = ref(false)
 const closureForm = ref({ dates: [], reason: '' })
+const loading = ref(false)
+const loadError = ref(false)
+const errorMessage = ref('')
+const saveClosureLoading = ref(false)
+const canSetClosure = computed(() => hasActionPermission('addHoliday'))
 
 const isClosed = computed(() => !!todayHoliday.value)
 const closureReason = computed(() => todayHoliday.value?.reason || '')
@@ -93,7 +145,14 @@ onMounted(() => {
 })
 
 async function loadData() {
-  await Promise.all([loadTodayAppointments(), loadTodayStatus()])
+  loading.value = true
+  loadError.value = false
+  errorMessage.value = ''
+  try {
+    await Promise.all([loadTodayAppointments(), loadTodayStatus()])
+  } finally {
+    loading.value = false
+  }
 }
 
 async function loadTodayAppointments() {
@@ -103,6 +162,9 @@ async function loadTodayAppointments() {
     todayAppointments.value = result.list || result || []
   } catch (err) {
     console.error('加载预约数据失败:', err)
+    loadError.value = true
+    errorMessage.value = err.message || '加载预约数据失败'
+    todayAppointments.value = []
     ElMessage.error('加载预约数据失败')
   }
 }
@@ -114,6 +176,8 @@ async function loadTodayStatus() {
     todayHoliday.value = (holidays || []).find(h => h.date === today) || null
   } catch (err) {
     console.error('加载营业状态失败:', err)
+    loadError.value = true
+    errorMessage.value = err.message || '加载营业状态失败'
     ElMessage.error('加载营业状态失败')
   }
 }
@@ -126,27 +190,56 @@ function showClosureDialog() {
 async function saveClosure() {
   const { dates, reason } = closureForm.value
 
+  if (!canSetClosure.value) {
+    ElMessage.warning('暂无权限执行停业设置')
+    return
+  }
+
   if (!dates || dates.length === 0) {
     ElMessage.warning('请选择停业日期')
+    return
+  }
+
+  const uniqueDates = Array.from(new Set(dates)).sort()
+  const invalidDate = uniqueDates.find(item => !/^\d{4}-\d{2}-\d{2}$/.test(item || ''))
+  if (invalidDate) {
+    ElMessage.warning(`停业日期格式异常：${invalidDate}`)
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm('确定要新增这些停业日吗？', '确认操作', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+  } catch (err) {
+    if (err === 'cancel') {
+      return
+    }
     return
   }
 
   let successCount = 0
   let skipCount = 0
 
-  for (const date of dates) {
-    try {
-      await restApi.addHoliday({ date, type: 'closure', reason: reason || '' })
-      successCount++
-    } catch (err) {
-      if (err.message && err.message.includes('已存在')) {
-        skipCount++
-      } else {
-        console.error(`设置 ${date} 停业失败:`, err)
+  saveClosureLoading.value = true
+  try {
+    for (const date of uniqueDates) {
+      try {
+        await restApi.addHoliday({ date, type: 'closure', reason: reason || '' })
+        successCount++
+      } catch (err) {
+        if (err.message && err.message.includes('已存在')) {
+          skipCount++
+        } else {
+          console.error(`设置 ${date} 停业失败:`, err)
+        }
       }
     }
+  } finally {
+    saveClosureLoading.value = false
   }
-
   closureDialogVisible.value = false
 
   let msg = `成功设置 ${successCount} 天停业`
@@ -199,5 +292,59 @@ function formatDate(date) {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+/* P0 dashboard polish */
+.status-card {
+  border: 0;
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 92% 8%, rgba(192, 96, 69, 0.16), transparent 28%),
+    linear-gradient(135deg, #fffaf2 0%, #f4eadb 100%);
+  box-shadow: 0 18px 44px rgba(93, 71, 45, 0.09);
+}
+
+.dashboard-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 16px 0;
+}
+
+.metric-card {
+  border-radius: 16px;
+  border: 1px solid rgba(100, 70, 40, 0.08);
+}
+
+.metric-card :deep(.el-card__body) {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  min-height: 82px;
+}
+
+.metric-card span {
+  color: #7a7165;
+  font-size: 14px;
+}
+
+.metric-card strong {
+  color: #231f1a;
+  font-size: 34px;
+  line-height: 1;
+}
+
+.metric-pending strong {
+  color: #c06045;
+}
+
+.metric-completed strong {
+  color: #5a7846;
+}
+
+@media (max-width: 900px) {
+  .dashboard-metrics {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

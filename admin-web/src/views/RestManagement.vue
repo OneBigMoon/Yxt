@@ -8,16 +8,43 @@
       <!-- 店铺停业 -->
       <el-tab-pane label="店铺停业" name="closure">
         <div class="tab-header">
-          <el-button type="primary" @click="showAddClosure">添加停业日</el-button>
-          <el-button @click="importHolidays">导入法定节假日</el-button>
+          <el-button
+            v-if="canAddHoliday"
+            type="primary"
+            @click="showAddClosure"
+          >
+            添加停业日
+          </el-button>
+          <el-button
+            v-if="canAddHoliday"
+            @click="importHolidays"
+          >
+            导入法定节假日
+          </el-button>
         </div>
 
-        <el-table :data="closures" border>
+        <el-empty
+          v-if="closureLoadError"
+          :description="closureErrorMessage || '加载停业数据失败'"
+        >
+          <el-button type="primary" @click="loadClosures" style="margin-top: 12px;">
+            重试
+          </el-button>
+        </el-empty>
+
+        <el-table v-else :data="closures" border v-loading="closureLoading">
           <el-table-column prop="date" label="日期" width="150" />
           <el-table-column prop="reason" label="原因" min-width="200" />
           <el-table-column label="操作" width="120">
             <template #default="{ row }">
-              <el-button type="danger" link @click="deleteClosure(row)">删除</el-button>
+              <el-button
+                v-if="canDeleteHoliday"
+                type="danger"
+                link
+                @click="deleteClosure(row)"
+              >
+                删除
+              </el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -26,16 +53,38 @@
       <!-- 技师休假 -->
       <el-tab-pane label="技师休假" name="techOff">
         <div class="tab-header">
-          <el-button type="primary" @click="showAddTechOff">添加休假</el-button>
+          <el-button
+            v-if="canAddTechDayOff"
+            type="primary"
+            @click="showAddTechOff"
+          >
+            添加休假
+          </el-button>
         </div>
 
-        <el-table :data="techDaysOff" border>
+        <el-empty
+          v-if="techOffLoadError"
+          :description="techOffErrorMessage || '加载技师休假失败'"
+        >
+          <el-button type="primary" @click="loadTechDaysOff" style="margin-top: 12px;">
+            重试
+          </el-button>
+        </el-empty>
+
+        <el-table v-else :data="techDaysOff" border v-loading="techOffLoading">
           <el-table-column prop="technician_name" label="技师" width="120" />
           <el-table-column prop="date" label="日期" width="150" />
           <el-table-column prop="reason" label="原因" min-width="200" />
           <el-table-column label="操作" width="120">
             <template #default="{ row }">
-              <el-button type="danger" link @click="deleteTechOff(row)">删除</el-button>
+              <el-button
+                v-if="canDeleteTechOff"
+                type="danger"
+                link
+                @click="deleteTechOff(row)"
+              >
+                删除
+              </el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -63,7 +112,13 @@
       <template #footer>
         <div class="dialog-footer">
           <el-button @click="closureVisible = false">取消</el-button>
-          <el-button type="primary" @click="addClosure">确定</el-button>
+          <el-button
+            type="primary"
+            :loading="closureSubmitLoading"
+            @click="addClosure"
+          >
+            确定
+          </el-button>
         </div>
       </template>
     </el-dialog>
@@ -99,7 +154,13 @@
       <template #footer>
         <div class="dialog-footer">
           <el-button @click="techOffVisible = false">取消</el-button>
-          <el-button type="primary" @click="addTechOff">确定</el-button>
+          <el-button
+            type="primary"
+            :loading="techOffSubmitLoading"
+            @click="addTechOff"
+          >
+            确定
+          </el-button>
         </div>
       </template>
     </el-dialog>
@@ -107,20 +168,44 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { restApi, technicianApi } from '../api'
+import { hasActionPermission } from '../utils/permissions'
 
 const activeTab = ref('closure')
 const closures = ref([])
 const techDaysOff = ref([])
 const technicians = ref([])
+const closureLoading = ref(false)
+const techOffLoading = ref(false)
+const closureLoadError = ref(false)
+const closureErrorMessage = ref('')
+const techOffLoadError = ref(false)
+const techOffErrorMessage = ref('')
+
+const canAddHoliday = computed(() => hasActionPermission('addHoliday'))
+const canDeleteHoliday = computed(() => hasActionPermission('deleteHoliday'))
+const canAddTechDayOff = computed(() => hasActionPermission('addTechDayOff'))
+const canDeleteTechOff = computed(() => hasActionPermission('deleteTechDayOff'))
 
 const closureVisible = ref(false)
 const closureForm = ref({ dates: [], reason: '' })
 
 const techOffVisible = ref(false)
 const techOffForm = ref({ technician_id: '', dates: [], reason: '' })
+const closureSubmitLoading = ref(false)
+const techOffSubmitLoading = ref(false)
+
+function normalizeDates(dates = []) {
+  if (!Array.isArray(dates)) {
+    return []
+  }
+
+  return Array.from(new Set(dates))
+    .filter(item => /^\d{4}-\d{2}-\d{2}$/.test(item || ''))
+    .sort()
+}
 
 function disablePastDate(date) {
   const today = new Date()
@@ -141,21 +226,37 @@ onMounted(() => {
 })
 
 async function loadClosures() {
+  closureLoading.value = true
+  closureLoadError.value = false
+  closureErrorMessage.value = ''
   try {
     closures.value = await restApi.getHolidays({ type: 'closure' })
   } catch (err) {
     console.error('加载停业日失败:', err)
     ElMessage.error('加载停业日失败')
+    closureLoadError.value = true
+    closureErrorMessage.value = err.message || '加载停业日失败'
+    closures.value = []
+  } finally {
+    closureLoading.value = false
   }
 }
 
 async function loadTechDaysOff() {
+  techOffLoading.value = true
+  techOffLoadError.value = false
+  techOffErrorMessage.value = ''
   try {
     const data = await restApi.getTechDaysOff()
     techDaysOff.value = data || []
   } catch (err) {
     console.error('加载技师休假失败:', err)
     ElMessage.error('加载技师休假失败')
+    techOffLoadError.value = true
+    techOffErrorMessage.value = err.message || '加载技师休假失败'
+    techDaysOff.value = []
+  } finally {
+    techOffLoading.value = false
   }
 }
 
@@ -180,17 +281,48 @@ async function addClosure() {
     return
   }
 
+  const normalizedDates = normalizeDates(dates)
+  if (normalizedDates.length === 0) {
+    ElMessage.warning('所选日期无效')
+    return
+  }
+
+  if ((reason || '').trim().length > 120) {
+    ElMessage.warning('停业原因请控制在120字以内')
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `将新增 ${normalizedDates.length} 条停业日记录，确认继续吗？`,
+      '确认添加',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+  } catch (err) {
+    return
+  }
+
   let successCount = 0
   let skipCount = 0
-  for (const date of dates) {
-    try {
-      await restApi.addHoliday({ date, type: 'closure', reason: reason || '' })
-      successCount++
-    } catch (err) {
-      if (err.message && err.message.includes('已存在')) {
-        skipCount++
+  closureSubmitLoading.value = true
+
+  try {
+    for (const date of normalizedDates) {
+      try {
+        await restApi.addHoliday({ date, type: 'closure', reason: (reason || '').trim() })
+        successCount++
+      } catch (err) {
+        if (err.message && err.message.includes('已存在')) {
+          skipCount++
+        }
       }
     }
+  } finally {
+    closureSubmitLoading.value = false
   }
 
   closureVisible.value = false
@@ -247,17 +379,48 @@ async function addTechOff() {
     return
   }
 
+  const normalizedDates = normalizeDates(dates)
+  if (normalizedDates.length === 0) {
+    ElMessage.warning('所选日期无效')
+    return
+  }
+
+  if ((reason || '').trim().length > 120) {
+    ElMessage.warning('休假原因请控制在120字以内')
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `将新增 ${normalizedDates.length} 条技师休假记录，确认继续吗？`,
+      '确认添加',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+  } catch (err) {
+    return
+  }
+
   let successCount = 0
   let skipCount = 0
-  for (const date of dates) {
-    try {
-      await restApi.addTechDayOff({ technician_id, date, reason: reason || '' })
-      successCount++
-    } catch (err) {
-      if (err.message && err.message.includes('已存在')) {
-        skipCount++
+  techOffSubmitLoading.value = true
+
+  try {
+    for (const date of normalizedDates) {
+      try {
+        await restApi.addTechDayOff({ technician_id, date, reason: (reason || '').trim() })
+        successCount++
+      } catch (err) {
+        if (err.message && err.message.includes('已存在')) {
+          skipCount++
+        }
       }
     }
+  } finally {
+    techOffSubmitLoading.value = false
   }
 
   techOffVisible.value = false
@@ -287,26 +450,30 @@ async function deleteTechOff(row) {
 
 <style scoped>
 .page-container {
-  background-color: #fff;
-  border-radius: 4px;
-  padding: 20px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+  padding: 0;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 20px;
 }
 
 .tab-header {
-  margin-bottom: 20px;
-  display: flex;
-  gap: 10px;
+  margin-bottom: 12px;
 }
-</style>
 
-<style>
 .is-today-cell {
-  background: #ecf5ff !important;
-  border-radius: 50%;
+  background: #ecf5ff;
 }
-.is-today-cell .el-date-table-cell__text {
-  color: #409eff !important;
-  font-weight: bold;
+
+.el-table {
+  margin-top: 6px;
 }
 </style>

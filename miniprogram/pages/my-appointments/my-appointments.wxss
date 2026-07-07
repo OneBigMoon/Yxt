@@ -1,70 +1,110 @@
 .my-appointments-page {
-  min-height: 100vh;
-  background: #f5f5f5;
+  padding-bottom: 210rpx;
+}
+
+.record-head {
+  position: relative;
+  z-index: 1;
+  padding: 46rpx 40rpx 22rpx;
+}
+
+.my-appointments-page .van-tabs {
+  position: relative;
+  z-index: 1;
 }
 
 .appointment-list {
-  padding: 20rpx 24rpx;
+  position: relative;
+  z-index: 1;
+  padding: 26rpx 32rpx;
 }
 
 .appointment-item {
-  padding: 24rpx;
-  margin-bottom: 16rpx;
+  padding: 28rpx;
+  margin-bottom: 22rpx;
+}
+
+.appointment-item:active {
+  transform: scale(0.985);
 }
 
 .apt-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16rpx;
+  align-items: flex-start;
+  gap: 18rpx;
+  margin-bottom: 20rpx;
 }
 
 .apt-services {
-  font-size: 30rpx;
-  font-weight: bold;
-  color: #333;
   flex: 1;
+  min-width: 0;
+  display: -webkit-box;
+  font-size: 34rpx;
+  font-weight: 700;
+  line-height: 1.35;
+  color: #231f1a;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.status-pending,
+.status-completed,
+.status-cancelled {
+  flex-shrink: 0;
+  padding: 8rpx 18rpx;
+  border-radius: 999rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+  line-height: 1.2;
 }
 
 .status-pending {
-  color: #ff976a;
-  background: rgba(255, 151, 106, 0.1);
-  padding: 4rpx 16rpx;
-  border-radius: 8rpx;
-  font-size: 24rpx;
+  color: #c06045;
+  background: rgba(192, 96, 69, 0.1);
 }
 
 .status-completed {
-  color: #07c160;
-  background: rgba(7, 193, 96, 0.1);
-  padding: 4rpx 16rpx;
-  border-radius: 8rpx;
-  font-size: 24rpx;
+  color: #5a7846;
+  background: rgba(90, 120, 70, 0.12);
 }
 
 .status-cancelled {
   color: #999;
   background: rgba(153, 153, 153, 0.1);
-  padding: 4rpx 16rpx;
-  border-radius: 8rpx;
-  font-size: 24rpx;
 }
 
 .apt-info {
   display: flex;
   flex-direction: column;
-  gap: 8rpx;
+  gap: 14rpx;
 }
 
 .apt-row {
   display: flex;
   align-items: center;
-  font-size: 26rpx;
-  color: #666;
+  gap: 12rpx;
+  font-size: 28rpx;
+  line-height: 1.45;
+  color: #6d6358;
+}
+
+.apt-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
   gap: 8rpx;
+  margin-top: 22rpx;
+  padding-top: 18rpx;
+  border-top: 1rpx solid rgba(100, 70, 40, 0.08);
+  color: #8a8176;
+  font-size: 25rpx;
 }
 
 .loading {
+  position: relative;
+  z-index: 1;
   display: flex;
   justify-content: center;
   padding: 40rpx;

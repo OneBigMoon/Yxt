@@ -32,7 +32,8 @@ exports.main = async (event, context) => {
         data: {
           hasAnyAvailable: false,
           dateStatus: {},
-          message: '您的账号注册信息有误，请联系门店'
+          message: '您的账号注册信息有误，请联系门店',
+          reason_code: 'BLACKLISTED'
         }
       }
     }
@@ -97,8 +98,24 @@ exports.main = async (event, context) => {
 
     // 4. 获取技师数量
     const techCount = techResData.length
+    if (techCount <= 0) {
+      return {
+        code: 0,
+        data: {
+          hasAnyAvailable: false,
+          dateStatus: {},
+          message: '暂无可预约技师，请联系门店',
+          reason_code: 'NO_ACTIVE_TECHNICIAN'
+        }
+      }
+    }
+
+    const activeTechnicianIds = new Set(techResData.map(tech => tech._id).filter(Boolean))
     const daysOffMap = {}
     for (const d of daysOffResData) {
+      if (!d || !activeTechnicianIds.has(d.technician_id)) {
+        continue
+      }
       daysOffMap[d.date] = (daysOffMap[d.date] || 0) + 1
     }
 
@@ -111,6 +128,13 @@ exports.main = async (event, context) => {
 
     // 5. 逐日检查状态
     const dateStatus = {}
+    const statusCounts = {
+      closure: 0,
+      rest: 0,
+      noTechnician: 0,
+      full: 0,
+      available: 0
+    }
     let hasAnyAvailable = false
 
     for (let d = 0; d <= maxDays; d++) {
@@ -120,6 +144,7 @@ exports.main = async (event, context) => {
       // 停业日
       if (holidaysMap[dateStr]) {
         dateStatus[dateStr] = { status: 'closure', reason: holidaysMap[dateStr] }
+        statusCounts.closure++
         continue
       }
 
@@ -128,13 +153,15 @@ exports.main = async (event, context) => {
       const workHours = config.schedule && config.schedule[dayOfWeek]
       if (!Array.isArray(workHours) || workHours.length === 0) {
         dateStatus[dateStr] = { status: 'rest' }
+        statusCounts.rest++
         continue
       }
 
       // 无技师
       let dayTechCount = techCount - (daysOffMap[dateStr] || 0)
       if (dayTechCount <= 0) {
-        dateStatus[dateStr] = { status: 'full' }
+        dateStatus[dateStr] = { status: 'full', reason: 'no_technician' }
+        statusCounts.noTechnician++
         continue
       }
 
@@ -179,23 +206,58 @@ exports.main = async (event, context) => {
 
       if (hasSlot) {
         dateStatus[dateStr] = { status: 'available' }
+        statusCounts.available++
         hasAnyAvailable = true
       } else {
-        dateStatus[dateStr] = { status: 'full' }
+        dateStatus[dateStr] = { status: 'full', reason: 'booked_or_no_slot' }
+        statusCounts.full++
       }
     }
+
+    const unavailableReason = getUnavailableReason(statusCounts, maxDays)
 
     return {
       code: 0,
       data: {
         hasAnyAvailable,
         dateStatus,
-        message: hasAnyAvailable ? '' : `${maxDays}天内预约已满，请稍后再试`
+        message: hasAnyAvailable ? '' : unavailableReason.message,
+        reason_code: hasAnyAvailable ? '' : unavailableReason.code
       }
     }
   } catch (err) {
     console.error('检查可用性失败:', err)
     return { code: -1, message: err.message || '检查失败' }
+  }
+}
+
+function countActiveTechnicianDaysOff(daysOffRecords, activeTechnicianIds) {
+  return (daysOffRecords || []).filter(record =>
+    record && activeTechnicianIds.has(record.technician_id)
+  ).length
+}
+
+function getUnavailableReason(statusCounts, maxDays) {
+  const totalDays = maxDays + 1
+  const nonBusinessDays = statusCounts.rest + statusCounts.closure
+
+  if (nonBusinessDays >= totalDays) {
+    return {
+      code: 'NO_BUSINESS_HOURS',
+      message: '当前暂无可预约营业日，请联系门店'
+    }
+  }
+
+  if (statusCounts.noTechnician > 0 && statusCounts.full === 0) {
+    return {
+      code: 'NO_TECHNICIAN_ON_DUTY',
+      message: '可预约日期暂无技师排班，请联系门店'
+    }
+  }
+
+  return {
+    code: 'FULLY_BOOKED',
+    message: `${maxDays}天内预约已满，请稍后再试`
   }
 }
 

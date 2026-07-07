@@ -9,22 +9,42 @@ const wechatTokenCache = { token: '', expireAt: 0 }
 const REQUEST_TIMEOUT_MS = 8000
 const MINI_PROGRAM_QR_SCENE_MAX_LENGTH = 32
 const MINI_PROGRAM_PAGE_MAX_LENGTH = 128
+const LOGIN_SESSION_TTL_MS = 5 * 60 * 1000
 const ADMIN_PASSWORD_SALT = process.env.ADMIN_PASSWORD_SALT || 'yxt-admin-salt'
 const ADMIN_BOOTSTRAP_USERNAME = process.env.ADMIN_BOOTSTRAP_USERNAME || ''
 const ADMIN_BOOTSTRAP_PASSWORD = process.env.ADMIN_BOOTSTRAP_PASSWORD || ''
 const WECHAT_MINIPROGRAM_QR_ENV_VERSION = process.env.WECHAT_MINIPROGRAM_QR_ENV_VERSION || 'release'
+const ADMIN_SESSION_TTL_MS = 24 * 60 * 60 * 1000
+const DEFAULT_TENANT_SCOPE = 'single_store'
 const ADMIN_ROLE_OPTIONS = ['super_admin', 'manager', 'viewer']
+const ADMIN_AUDIT_LOG_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
+const ADMIN_AUDIT_LOG_KEEP_LIMIT = 8000
+const DEFAULT_HOME_CARDS = [
+  { key: 'business_status', title: '门诊营业状态', enabled: true, sort: 1 },
+  { key: 'recommended_technicians', title: '优秀技师', enabled: true, sort: 2 },
+  { key: 'wellness_classroom', title: '养生小课堂', enabled: true, sort: 3 }
+]
+const DEFAULT_FACILITIES = [
+  { name: '门口停车', icon: 'logistics', enabled: true, sort: 1 },
+  { name: '等候座椅', icon: 'friends-o', enabled: true, sort: 2 },
+  { name: '可拨门店', icon: 'phone-o', enabled: true, sort: 3 }
+]
+const DEFAULT_RECOMMENDED_TECHNICIANS = [
+  { name: '李技师', specialty: '擅长颈肩调理', enabled: true, sort: 1 },
+  { name: '王技师', specialty: '擅长脾胃养护', enabled: true, sort: 2 }
+]
+let CURRENT_TRACE_ID = ''
 const ADMIN_ACTION_PERMISSIONS = {
   super_admin: ['*'],
   manager: [
     'getServices', 'createService', 'updateService',
-    'getTechnicians', 'createTechnician', 'updateTechnician', 'toggleTechnicianStatus',
+    'getTechnicians', 'createTechnician', 'updateTechnician', 'toggleTechnicianStatus', 'deleteTechnician',
     'getCustomers', 'updateCustomer', 'deleteCustomer', 'toggleBlacklist',
     'getAppointments', 'getAppointmentDetail',
     'getHolidays', 'addHoliday', 'deleteHoliday',
     'getTechDaysOff', 'addTechDayOff', 'deleteTechDayOff',
     'getCommissions', 'getCommissionSummary',
-    'getArticles', 'createArticle', 'updateArticle', 'toggleArticleStatus',
+    'getArticles', 'createArticle', 'updateArticle', 'toggleArticleStatus', 'deleteArticle',
     'updateConfig', 'importHolidays',
     'getCurrentAdmin'
   ],
@@ -41,12 +61,361 @@ const ADMIN_ACTION_PERMISSIONS = {
   ]
 }
 
-function normalizeAdminRole(role, fallback = 'manager') {
-  return ADMIN_ROLE_OPTIONS.includes(role) ? role : fallback
+function isRoleValid(role) {
+  return ADMIN_ROLE_OPTIONS.includes(role)
+}
+
+function getRolePermissions(role) {
+  const normalizedRole = isRoleValid(role) ? role : ''
+  return ADMIN_ACTION_PERMISSIONS[normalizedRole] || []
+}
+
+function normalizeAdminRole(role, fallback = '') {
+  return isRoleValid(role) ? role : fallback
+}
+
+function parseIntLike(value, fallback = 0) {
+  const n = Number(value)
+  return Number.isFinite(n) ? Math.floor(n) : fallback
+}
+
+function parseDateLike(value) {
+  if (value instanceof Date) {
+    return value.getTime()
+  }
+  if (typeof value === 'number') {
+    return value
+  }
+  const parsed = Date.parse(value || '')
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function normalizePagination(value, fallback = 1, max = 200) {
+  const n = parseIntLike(value, fallback)
+  if (n < 1) return fallback
+  if (n > max) return max
+  return n
+}
+
+function normalizeTraceId(traceId = '') {
+  if (typeof traceId !== 'string') {
+    return ''
+  }
+
+  return traceId.trim().slice(0, 64)
+}
+
+function withTraceId(value, traceId = CURRENT_TRACE_ID) {
+  const finalTraceId = normalizeTraceId(traceId)
+  if (!value || typeof value !== 'object') {
+    return buildErrorResult('云函数返回格式异常', 'SESSION_CORRUPTED', finalTraceId)
+  }
+
+  if (!value.trace_id) {
+    return {
+      ...value,
+      trace_id: finalTraceId
+    }
+  }
+
+  return value
+}
+
+function normalizeMobile(value) {
+  return String(value || '').trim()
+}
+
+function escapeRegExp(input) {
+  return String(input || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function normalizeAppointmentStatus(status) {
+  if (!status) {
+    return ''
+  }
+  const value = String(status)
+  return ['pending', 'completed', 'cancelled'].includes(value) ? value : ''
+}
+
+function isDateYMD(value) {
+  const text = String(value || '')
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    return false
+  }
+  const time = Date.parse(text)
+  return Number.isFinite(time)
+}
+
+function isStartNoLaterThanEnd(startDate, endDate) {
+  if (!isDateYMD(startDate) || !isDateYMD(endDate)) {
+    return false
+  }
+  return Date.parse(startDate) <= Date.parse(endDate)
+}
+
+function normalizeAdminId(value) {
+  const text = String(value || '').trim()
+  if (!text || text.length > 64) {
+    return ''
+  }
+  return text
+}
+
+function normalizeTextField(value, maxLen) {
+  const text = String(value || '').trim()
+  if (!text) {
+    return ''
+  }
+  return text
+}
+
+function validateDateRangeFilter(startDate, endDate, requireBoth = false) {
+  const start = String(startDate || '').trim()
+  const end = String(endDate || '').trim()
+
+  if (requireBoth && (!start || !end)) {
+    return '日期范围参数不完整'
+  }
+
+  if (start && !isDateYMD(start)) {
+    return '开始日期格式不合法'
+  }
+
+  if (end && !isDateYMD(end)) {
+    return '结束日期格式不合法'
+  }
+
+  if (start && end && !isStartNoLaterThanEnd(start, end)) {
+    return '日期范围参数不合法'
+  }
+
+  return ''
+}
+
+function normalizeScanSessionId(sessionId) {
+  if (typeof sessionId !== 'string') {
+    return ''
+  }
+  return sessionId.trim().toLowerCase()
+}
+
+function isValidScanSessionId(sessionId) {
+  const normalized = normalizeScanSessionId(sessionId)
+  return /^[a-z0-9]{32}$/.test(normalized)
+}
+
+async function expireLoginSession(sessionId, reason = '会话已过期') {
+  const id = normalizeScanSessionId(sessionId)
+  if (!isValidScanSessionId(id)) {
+    return
+  }
+
+  try {
+    await db.collection('login_sessions').doc(id).update({
+      data: {
+        status: 'expired',
+        reject_reason: reason,
+        expired_at: Date.now(),
+        updated_at: Date.now()
+      }
+    })
+  } catch (err) {
+    console.error('更新扫码会话状态失败:', err.message || err)
+  }
+}
+
+async function cleanupExpiredLoginSessions(now = Date.now()) {
+  try {
+    const stale = await db.collection('login_sessions')
+      .where({
+        status: _.neq('expired'),
+        expires_at: _.lt(now)
+      })
+      .limit(100)
+      .get()
+
+    if (!stale || !stale.data || stale.data.length === 0) {
+      return
+    }
+
+    for (const item of stale.data) {
+      await db.collection('login_sessions')
+        .doc(item._id)
+        .update({
+          data: {
+            status: 'expired',
+            reject_reason: '会话已过期',
+            expired_at: Date.now(),
+            updated_at: Date.now()
+          }
+        })
+        .catch(() => {})
+    }
+  } catch (err) {
+    console.error('清理扫码会话失败:', err.message || err)
+  }
+}
+
+function normalizeLoginSessionEventId(sessionId) {
+  return normalizeScanSessionId(sessionId)
+}
+
+function getScanSessionIdFromRequest(data) {
+  const sessionId = normalizeLoginSessionEventId(data && data.session_id)
+  if (!isValidScanSessionId(sessionId)) {
+    return ''
+  }
+  return sessionId
+}
+
+function buildErrorResult(message, errorCode = '', traceId = '') {
+  return {
+    code: -1,
+    message,
+    errorCode,
+    error_code: errorCode,
+    trace_id: normalizeTraceId(traceId || CURRENT_TRACE_ID)
+  }
+}
+
+function buildSuccessResult(data) {
+  return {
+    code: 0,
+    data,
+    trace_id: normalizeTraceId(CURRENT_TRACE_ID)
+  }
+}
+
+function extractAdminSessionInput(event = {}) {
+  if (!event || typeof event !== 'object') {
+    return {}
+  }
+
+  const raw = event.admin_session
+  if (raw && typeof raw === 'object') {
+    return {
+      token: raw.token || raw.admin_token || '',
+      role: raw.role || '',
+      permissions: raw.permissions || raw.permission || []
+    }
+  }
+
+  if (typeof raw === 'string') {
+    return { token: raw }
+  }
+
+  return {
+    token: event.admin_token || ''
+  }
+}
+
+async function writeAdminAuditLog(adminAuth, action, options = {}) {
+  try {
+    const tenantScope = (adminAuth && adminAuth.tenant_scope) || DEFAULT_TENANT_SCOPE
+    const wxContext = cloud.getWXContext ? cloud.getWXContext() : {}
+    const now = Date.now()
+    await db.collection('admin_audit_logs').add({
+      data: {
+        admin_user_id: adminAuth ? adminAuth.admin_user_id : '',
+        admin_username: adminAuth ? adminAuth.username : '',
+        role: adminAuth ? adminAuth.role : '',
+        tenant_scope: tenantScope,
+        action,
+        target_type: options.targetType || '',
+        target_id: options.targetId || '',
+        status: options.status || 'success',
+        changes: options.changes || null,
+        message: options.message || '',
+        openid: wxContext.OPENID || '',
+        created_at: now
+      }
+    })
+
+    await cleanupAdminAuditLogs(now).catch(() => {})
+  } catch (err) {
+    console.error('审计日志记录失败:', err.message || err)
+  }
+}
+
+async function cleanupAdminAuditLogs(now = Date.now()) {
+  try {
+    const expireBefore = now - ADMIN_AUDIT_LOG_RETENTION_MS
+    const expired = await db.collection('admin_audit_logs')
+      .where({ created_at: _.lt(expireBefore) })
+      .limit(100)
+      .get()
+
+    if (expired && expired.data && expired.data.length > 0) {
+      for (const item of expired.data) {
+        await db.collection('admin_audit_logs').doc(item._id).remove().catch(() => {})
+      }
+    }
+
+    const recent = await db.collection('admin_audit_logs')
+      .orderBy('created_at', 'desc')
+      .skip(ADMIN_AUDIT_LOG_KEEP_LIMIT)
+      .get()
+
+    if (recent && recent.data && recent.data.length > 0) {
+      const cutoff = Number(recent.data[recent.data.length - 1].created_at || 0)
+      if (cutoff > 0) {
+        const tooMany = await db.collection('admin_audit_logs')
+          .where({ created_at: _.lte(cutoff) })
+          .limit(100)
+          .get()
+        if (tooMany && tooMany.data && tooMany.data.length > 0) {
+          for (const item of tooMany.data) {
+            await db.collection('admin_audit_logs').doc(item._id).remove().catch(() => {})
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('清理审计日志失败:', err.message || err)
+  }
+}
+
+async function invalidateAdminSessionsByUser(adminUserId, reason = '管理员账号变更') {
+  if (!adminUserId) {
+    return 0
+  }
+
+  try {
+    const activeSessions = await db.collection('admin_sessions')
+      .where({ admin_user_id: adminUserId, status: 'active' })
+      .limit(100)
+      .get()
+
+    if (!activeSessions || !activeSessions.data || activeSessions.data.length === 0) {
+      return 0
+    }
+
+    const now = Date.now()
+    let count = 0
+    for (const item of activeSessions.data) {
+      await db.collection('admin_sessions')
+        .doc(item._id)
+        .update({
+          data: {
+            status: 'logged_out',
+            logout_reason: reason,
+            last_accessed_at: now,
+            updated_at: now
+          }
+        })
+        .catch(() => {})
+      count += 1
+    }
+
+    return count
+  } catch (err) {
+    console.error('失效管理员会话失败:', err.message || err)
+    return 0
+  }
 }
 
 function canAdminAccessAction(role, action) {
-  const normalizedRole = normalizeAdminRole(role, 'viewer')
+  const normalizedRole = normalizeAdminRole(role, '')
   const allowedActions = ADMIN_ACTION_PERMISSIONS[normalizedRole] || []
   return allowedActions.includes('*') || allowedActions.includes(action)
 }
@@ -54,7 +423,7 @@ function canAdminAccessAction(role, action) {
 function sanitizeAdminUser(user = {}) {
   const safeUser = { ...user }
   delete safeUser.password_hash
-  safeUser.role = normalizeAdminRole(safeUser.role, 'super_admin')
+  safeUser.role = normalizeAdminRole(safeUser.role, '')
   safeUser.status = safeUser.status || 'active'
   return safeUser
 }
@@ -178,6 +547,29 @@ function getMiniProgramPagePath() {
   return normalized
 }
 
+function getScanSessionUrl(sessionId) {
+  const scene = normalizeMiniProgramScene(sessionId)
+  const page = getMiniProgramPagePath()
+  if (!scene || !page) {
+    return ''
+  }
+
+  return `${page}?session_id=${encodeURIComponent(scene)}`
+}
+
+function buildScanSessionResponse(sessionId, payload = {}) {
+  const sessionExpireAt = Number(payload.expires_at || payload.session_expire_at || 0)
+  return {
+    ...payload,
+    session_id: sessionId,
+    confirm_url: getScanSessionUrl(sessionId),
+    type: payload.type || 'admin_login',
+    status: payload.status || 'pending',
+    session_expire_at: sessionExpireAt,
+    expires_at: sessionExpireAt
+  }
+}
+
 function normalizeMiniProgramScene(sessionId) {
   if (typeof sessionId !== 'string') return ''
   if (sessionId.length > MINI_PROGRAM_QR_SCENE_MAX_LENGTH) return ''
@@ -189,38 +581,45 @@ exports.main = async (event, context) => {
     return handleHttpAccess(event)
   }
 
-  const { action, data, id } = event
+  const { action: rawAction, data = {} } = event || {}
+  const action = String(rawAction || '')
+  CURRENT_TRACE_ID = normalizeTraceId(event && (event.trace_id || event.traceId || ''))
 
   try {
     // 受保护的 action 需要校验管理员会话和角色权限
     const protectedActions = [
+      'getCurrentAdmin',
+      'logout',
+      'getAdminAuditLogs',
       'getServices', 'createService', 'updateService',
-      'getTechnicians', 'createTechnician', 'updateTechnician', 'toggleTechnicianStatus',
+      'getTechnicians', 'createTechnician', 'updateTechnician', 'toggleTechnicianStatus', 'deleteTechnician',
       'getCustomers', 'updateCustomer', 'deleteCustomer', 'toggleBlacklist',
       'getAppointments', 'getAppointmentDetail',
-      'getHolidays', 'addHoliday', 'deleteHoliday',
+      'addHoliday', 'deleteHoliday',
       'getTechDaysOff', 'addTechDayOff', 'deleteTechDayOff',
       'getCommissions', 'getCommissionSummary',
-      'getArticles', 'createArticle', 'updateArticle', 'toggleArticleStatus',
+      'getArticles', 'createArticle', 'updateArticle', 'toggleArticleStatus', 'deleteArticle',
       'updateConfig', 'importHolidays',
-      'getCurrentAdmin',
       'getAdminUsers', 'addAdminUser', 'updateAdminUser', 'removeAdminUser', 'createAdminBindSession'
     ]
 
+    let adminAuth = null
+
     if (protectedActions.includes(action)) {
-      const adminAuth = await getAdminAuth(event)
-      if (!adminAuth) {
-        return { code: -1, message: '身份验证失败，请重新登录' }
+      const authResult = await ensureAdminPermission(event, action)
+      if (!authResult.ok) {
+        return authResult.error
       }
-      if (!canAdminAccessAction(adminAuth.role, action)) {
-        return { code: -1, message: '当前账号无权限访问该功能' }
-      }
+      adminAuth = authResult.auth
     }
 
-    switch (action) {
+    const result = await (async () => {
+      switch (action) {
       // 获取营业配置
       case 'getConfig':
         return await getConfig(event)
+      case 'createAppointmentQrCode':
+        return await createAppointmentQrCode(data)
 
       // 管理员登录
       case 'verifyAdminPassword':
@@ -228,35 +627,37 @@ exports.main = async (event, context) => {
 
       // 更新营业配置
       case 'updateConfig':
-        return await updateConfig(data)
+        return await updateConfig(adminAuth, data)
 
       // 服务管理
       case 'getServices':
         return await getServices()
       case 'createService':
-        return await createService(data)
+        return await createService(adminAuth, data)
       case 'updateService':
-        return await updateService(data)
+        return await updateService(adminAuth, data)
 
       // 技师管理
       case 'getTechnicians':
         return await getTechnicians()
       case 'createTechnician':
-        return await createTechnician(data)
+        return await createTechnician(adminAuth, data)
       case 'updateTechnician':
-        return await updateTechnician(data)
+        return await updateTechnician(adminAuth, data)
       case 'toggleTechnicianStatus':
-        return await toggleTechnicianStatus(data)
+        return await toggleTechnicianStatus(adminAuth, data)
+      case 'deleteTechnician':
+        return await deleteTechnician(adminAuth, data)
 
       // 客户管理
       case 'getCustomers':
         return await getCustomers(data)
       case 'updateCustomer':
-        return await updateCustomer(data)
+        return await updateCustomer(adminAuth, data)
       case 'deleteCustomer':
-        return await deleteCustomer(data)
+        return await deleteCustomer(adminAuth, data)
       case 'toggleBlacklist':
-        return await toggleBlacklist(data)
+        return await toggleBlacklist(adminAuth, data)
 
       // 预约管理
       case 'getAppointments':
@@ -268,15 +669,15 @@ exports.main = async (event, context) => {
       case 'getHolidays':
         return await getHolidays(data)
       case 'addHoliday':
-        return await addHoliday(data)
+        return await addHoliday(adminAuth, data)
       case 'deleteHoliday':
-        return await deleteHoliday(data)
+        return await deleteHoliday(adminAuth, data)
       case 'getTechDaysOff':
         return await getTechDaysOff()
       case 'addTechDayOff':
-        return await addTechDayOff(data)
+        return await addTechDayOff(adminAuth, data)
       case 'deleteTechDayOff':
-        return await deleteTechDayOff(data)
+        return await deleteTechDayOff(adminAuth, data)
 
       // 提成统计
       case 'getCommissions':
@@ -288,11 +689,13 @@ exports.main = async (event, context) => {
       case 'getArticles':
         return await getArticles()
       case 'createArticle':
-        return await createArticle(data)
+        return await createArticle(adminAuth, data)
       case 'updateArticle':
-        return await updateArticle(data)
+        return await updateArticle(adminAuth, data)
       case 'toggleArticleStatus':
-        return await toggleArticleStatus(data)
+        return await toggleArticleStatus(adminAuth, data)
+      case 'deleteArticle':
+        return await deleteArticle(adminAuth, data)
 
       // 导入法定节假日
       case 'importHolidays':
@@ -300,15 +703,19 @@ exports.main = async (event, context) => {
 
       // 管理员账号管理
       case 'getCurrentAdmin':
-        return await getCurrentAdmin(event)
+        return await getCurrentAdmin(adminAuth)
+      case 'getAdminAuditLogs':
+        return await getAdminAuditLogs(adminAuth, data)
       case 'getAdminUsers':
-        return await getAdminUsers()
+        return await getAdminUsers(adminAuth)
       case 'addAdminUser':
-        return await addAdminUser(data)
+        return await addAdminUser(adminAuth, data)
       case 'updateAdminUser':
-        return await updateAdminUser(data)
+        return await updateAdminUser(adminAuth, data)
       case 'removeAdminUser':
-        return await removeAdminUser(data)
+        return await removeAdminUser(adminAuth, data)
+      case 'logout':
+        return await logoutAdmin(adminAuth)
 
       // 扫码登录
       case 'createSession':
@@ -325,11 +732,16 @@ exports.main = async (event, context) => {
         return await scanLogin(data)
 
       default:
-        return { code: -1, message: '未知操作' }
-    }
+        return buildErrorResult('未知操作', 'SESSION_CORRUPTED')
+      }
+    })()
+
+    return withTraceId(result)
   } catch (err) {
     console.error(`操作 ${action} 失败:`, err)
-    return { code: -1, message: err.message || '操作失败' }
+    return buildErrorResult(err.message || '操作失败', 'SESSION_CORRUPTED')
+  } finally {
+    CURRENT_TRACE_ID = ''
   }
 }
 
@@ -374,56 +786,164 @@ function hashAdminPassword(password) {
 async function createAdminSession(data = {}) {
   const token = generateToken()
   const now = Date.now()
-  const role = normalizeAdminRole(data.role, 'super_admin')
+  const role = normalizeAdminRole(data.role, '')
+  if (!role) {
+    throw new Error('管理员角色异常')
+  }
+  const permissions = getRolePermissions(role)
+  const tenantScope = data.tenant_scope || DEFAULT_TENANT_SCOPE
+  const adminUserId = data.admin_user_id || ''
+  const sessionExpireAt = now + ADMIN_SESSION_TTL_MS
+
+  if (adminUserId) {
+    await invalidateAdminSessionsByUser(adminUserId, '重新登录')
+  }
 
   await db.collection('admin_sessions').add({
     data: {
       _id: token,
-      admin_user_id: data.admin_user_id || '',
+      admin_user_id: adminUserId,
       username: data.username || '',
       role,
+      permissions,
+      tenant_scope: tenantScope,
       openid: data.openid || '',
       login_method: data.login_method || 'password',
+      status: 'active',
       created_at: now,
-      expires_at: now + 24 * 60 * 60 * 1000
+      session_expire_at: sessionExpireAt,
+      updated_at: now,
+      last_login_at: now,
+      expires_at: sessionExpireAt
     }
   })
+
+  if (adminUserId) {
+    await db.collection('admin_users').doc(adminUserId).update({
+      data: {
+        last_login_at: now,
+        last_login_method: data.login_method || 'password',
+        openid: data.openid || '',
+        updated_at: now
+      }
+    }).catch(() => {})
+  }
 
   return token
 }
 
+async function ensureAdminPermission(event, action) {
+  const adminAuth = await getAdminAuth(event)
+  if (!adminAuth) {
+    return {
+      ok: false,
+      error: buildErrorResult('身份验证失败，请重新登录', 'SESSION_EXPIRED')
+    }
+  }
+
+  if (!isRoleValid(adminAuth.role)) {
+    return {
+      ok: false,
+      error: buildErrorResult('账号角色异常，请重新登录', 'ROLE_MISMATCH')
+    }
+  }
+
+  if (!canAdminAccessAction(adminAuth.role, action)) {
+    return {
+      ok: false,
+      error: buildErrorResult('当前账号无权限访问该功能', 'INSUFFICIENT_PERMISSION')
+    }
+  }
+
+  return { ok: true, auth: adminAuth }
+}
+
 async function getAdminAuth(event = {}) {
-  if (!event.admin_token) {
+  const sessionInput = extractAdminSessionInput(event)
+  if (!sessionInput || !sessionInput.token) {
     return null
   }
 
   try {
-    const session = await db.collection('admin_sessions').doc(event.admin_token).get()
-    if (!session.data || Date.now() > session.data.expires_at) {
+    const sessionRes = await db.collection('admin_sessions').doc(sessionInput.token).get()
+    const session = sessionRes.data
+    if (!session) {
       return null
     }
 
-    let role = normalizeAdminRole(session.data.role, 'super_admin')
-    let username = session.data.username || ''
-    const adminUserId = session.data.admin_user_id || ''
+    if (session.status && session.status !== 'active') {
+      return null
+    }
+
+    const now = Date.now()
+    const resolvedExpireAt = Number(session.expires_at || session.session_expire_at || 0)
+    if (!resolvedExpireAt || now > resolvedExpireAt) {
+      await db.collection('admin_sessions').doc(sessionInput.token).update({
+        data: {
+          status: 'expired'
+        }
+      }).catch(() => {})
+      return null
+    }
+
+    const adminUserId = session.admin_user_id || ''
+    let role = normalizeAdminRole(session.role, '')
+    let username = session.username || ''
+    let openid = session.openid || ''
 
     if (adminUserId) {
       const adminUserRes = await db.collection('admin_users').doc(adminUserId).get()
       if (!adminUserRes.data || (adminUserRes.data.status && adminUserRes.data.status !== 'active')) {
         return null
       }
-      role = normalizeAdminRole(adminUserRes.data.role, 'super_admin')
+      const adminRole = adminUserRes.data.role
+      if (!isRoleValid(adminRole)) {
+        return null
+      }
+      role = normalizeAdminRole(adminRole, '')
       username = adminUserRes.data.username || username
+      openid = adminUserRes.data.openid || openid
+    } else if (!isRoleValid(role)) {
+      return null
+    }
+
+    const permissions = getRolePermissions(role)
+    const resolvedTenantScope = session.tenant_scope || DEFAULT_TENANT_SCOPE
+    const resolvedLastLoginAt = Number(session.last_login_at || session.updated_at || session.created_at || now)
+
+    if (session.role !== role || JSON.stringify(session.permissions || []) !== JSON.stringify(permissions)) {
+      db.collection('admin_sessions').doc(sessionInput.token).update({
+        data: {
+          role,
+          permissions,
+          tenant_scope: resolvedTenantScope,
+          updated_at: now
+        }
+      }).catch(() => {})
+    } else {
+      db.collection('admin_sessions').doc(sessionInput.token).update({
+        data: { last_accessed_at: now, updated_at: now }
+      }).catch(() => {})
     }
 
     return {
-      token: event.admin_token,
+      token: sessionInput.token,
       admin_user_id: adminUserId,
+      admin_id: adminUserId,
       username,
       role,
-      openid: session.data.openid || ''
+      permissions,
+      admin_permissions: permissions,
+      tenant_scope: resolvedTenantScope,
+      openid,
+      session_expire_at: resolvedExpireAt,
+      last_login_at: resolvedLastLoginAt,
+      status: session.status || 'active',
+      created_at: session.created_at || 0,
+      updated_at: session.updated_at || 0
     }
   } catch (err) {
+    console.error('会话校验失败:', err.message || err)
     return null
   }
 }
@@ -434,17 +954,76 @@ async function validateAdminAuth(event = {}) {
 
 // ==================== 营业配置 ====================
 
+function cleanConfigText(value, fallback = '', max = 40) {
+  const text = String(value || fallback || '').trim()
+  return text.slice(0, max)
+}
+
+function normalizeEnabled(value) {
+  return value !== false
+}
+
+function normalizeHomeCards(input) {
+  const source = Array.isArray(input) ? input : []
+  return DEFAULT_HOME_CARDS.map((item) => {
+    const saved = source.find(candidate => candidate && candidate.key === item.key) || {}
+    return {
+      key: item.key,
+      title: cleanConfigText(saved.title, item.title, 24),
+      enabled: normalizeEnabled(saved.enabled),
+      sort: parseIntLike(saved.sort, item.sort)
+    }
+  }).sort((a, b) => a.sort - b.sort)
+}
+
+function normalizeFacilities(input) {
+  if (input !== undefined && !Array.isArray(input)) {
+    return DEFAULT_FACILITIES
+  }
+  const source = input === undefined ? DEFAULT_FACILITIES : input
+  return source.slice(0, 12).map((item, index) => ({
+    name: cleanConfigText(item && item.name, '', 16),
+    icon: cleanConfigText(item && item.icon, 'shop-o', 24),
+    enabled: normalizeEnabled(item && item.enabled),
+    sort: parseIntLike(item && item.sort, index + 1)
+  })).filter(item => item.name).sort((a, b) => a.sort - b.sort)
+}
+
+function normalizeRecommendedTechnicians(input) {
+  if (input !== undefined && !Array.isArray(input)) {
+    return DEFAULT_RECOMMENDED_TECHNICIANS
+  }
+  const source = input === undefined ? DEFAULT_RECOMMENDED_TECHNICIANS : input
+  return source.slice(0, 12).map((item, index) => ({
+    name: cleanConfigText(item && item.name, '', 16),
+    specialty: cleanConfigText(item && item.specialty, '擅长中医调理', 32),
+    enabled: normalizeEnabled(item && item.enabled),
+    sort: parseIntLike(item && item.sort, index + 1)
+  })).filter(item => item.name).sort((a, b) => a.sort - b.sort)
+}
+
+function withDisplayConfigDefaults(config = {}) {
+  return {
+    ...config,
+    home_cards: normalizeHomeCards(config.home_cards),
+    facilities: normalizeFacilities(config.facilities),
+    recommended_technicians: normalizeRecommendedTechnicians(config.recommended_technicians)
+  }
+}
+
 async function getConfig(event = {}) {
+  const hasAdminAuth = await validateAdminAuth(event)
+
   const res = await db.collection('business_config').limit(1).get()
   if (res.data.length === 0) {
     // 创建默认配置
     const defaultConfig = {
       store: {
-        name: 'XX中医门诊',
-        phone: '010-12345678',
-        address: 'XX市XX区XX路XX号',
-        latitude: 39.9042,
-        longitude: 116.4074
+        name: '壹心堂中医门诊',
+        phone: '',
+        address: '',
+        latitude: 0,
+        longitude: 0
       },
       schedule: {
         1: [{ start: '09:00', end: '12:00' }, { start: '14:00', end: '18:00' }],
@@ -457,28 +1036,32 @@ async function getConfig(event = {}) {
       },
       slot_interval: 30,
       holidays: [],
-      max_advance_days: 14
+      max_advance_days: 14,
+      home_cards: normalizeHomeCards(),
+      facilities: normalizeFacilities(),
+      recommended_technicians: normalizeRecommendedTechnicians()
     }
 
     await db.collection('business_config').add({ data: defaultConfig })
-    return { code: 0, data: sanitizeConfig(defaultConfig, await validateAdminAuth(event)) }
+    return buildSuccessResult(sanitizeConfig(defaultConfig, hasAdminAuth))
   }
 
-  return { code: 0, data: sanitizeConfig(res.data[0], await validateAdminAuth(event)) }
+  return buildSuccessResult(sanitizeConfig(res.data[0], hasAdminAuth))
 }
 
 function sanitizeConfig(config, isAdmin) {
+  const normalizedConfig = withDisplayConfigDefaults(config || {})
   if (isAdmin) {
-    return config
+    return normalizedConfig
   }
 
-  const { admin_password, ...publicConfig } = config
+  const { admin_password, ...publicConfig } = normalizedConfig
   return publicConfig
 }
 
 async function verifyAdminPassword(data) {
   if (!data || !data.password || !data.username) {
-    return { code: -1, message: '请输入账号和密码' }
+    return buildErrorResult('请输入账号和密码', 'SESSION_CORRUPTED')
   }
 
   const username = (data.username || '').trim()
@@ -489,19 +1072,23 @@ async function verifyAdminPassword(data) {
       return bootstrapResult
     }
 
-    return { code: -1, message: '账号或密码错误' }
+    return buildErrorResult('账号或密码错误', 'SESSION_CORRUPTED')
   }
 
   const account = accountRes.data[0]
   if (account.status && account.status !== 'active') {
-    return { code: -1, message: '账号已停用，请联系管理员' }
+    return buildErrorResult('账号已停用，请联系管理员', 'USER_DISABLED')
   }
 
   if (account.password_hash !== hashAdminPassword(data.password)) {
-    return { code: -1, message: '账号或密码错误' }
+    return buildErrorResult('账号或密码错误', 'SESSION_CORRUPTED')
   }
 
-  const role = normalizeAdminRole(account.role, 'super_admin')
+  const role = normalizeAdminRole(account.role, '')
+  if (!role) {
+    return buildErrorResult('该管理员角色配置异常，请联系系统管理员', 'ROLE_MISMATCH')
+  }
+
   const token = await createAdminSession({
     admin_user_id: account._id,
     username: account.username,
@@ -509,7 +1096,31 @@ async function verifyAdminPassword(data) {
     login_method: 'password',
     openid: account.openid || ''
   })
-  return { code: 0, data: { token, username: account.username, role } }
+
+  const sessionExpireAt = Date.now() + ADMIN_SESSION_TTL_MS
+  await writeAdminAuditLog({
+    admin_user_id: account._id,
+    username: account.username,
+    role: account.role,
+    tenant_scope: DEFAULT_TENANT_SCOPE
+  }, 'admin.login.password', {
+    targetType: 'admin_user',
+    targetId: account._id,
+    status: 'success',
+    message: '账号密码登录成功'
+  })
+
+  return buildSuccessResult({
+    token,
+    username: account.username,
+    role,
+    permissions: getRolePermissions(role),
+    tenant_scope: DEFAULT_TENANT_SCOPE,
+    session_expire_at: sessionExpireAt,
+    last_login_at: Date.now(),
+    admin_id: account._id,
+    admin_user_id: account._id
+  })
 }
 
 async function tryBootstrapFirstAdmin(username, password) {
@@ -545,21 +1156,144 @@ async function tryBootstrapFirstAdmin(username, password) {
     role: 'super_admin',
     login_method: 'password'
   })
-  return { code: 0, data: { token, username, role: 'super_admin', bootstrapped: true } }
+  return buildSuccessResult({
+    token,
+    username,
+    role: 'super_admin',
+    permissions: getRolePermissions('super_admin'),
+    tenant_scope: DEFAULT_TENANT_SCOPE,
+    session_expire_at: Date.now() + ADMIN_SESSION_TTL_MS,
+    last_login_at: Date.now(),
+    admin_id: addRes._id,
+    admin_user_id: addRes._id,
+    bootstrapped: true
+  })
 }
 
-async function updateConfig(data) {
+async function updateConfig(adminAuth = {}, data = {}) {
+  if (!data || typeof data !== 'object') {
+    return buildErrorResult('配置参数不能为空', 'SESSION_CORRUPTED')
+  }
+
+  if (!data.store || typeof data.store !== 'object') {
+    return buildErrorResult('门店配置不合法', 'SESSION_CORRUPTED')
+  }
+
+  const scheduleInput = data.schedule
+  if (!scheduleInput || typeof scheduleInput !== 'object') {
+    return buildErrorResult('营业时间配置不合法', 'SESSION_CORRUPTED')
+  }
+
+  const validatedSchedule = {}
+  for (let day = 1; day <= 7; day += 1) {
+    const rawPeriods = scheduleInput[day] || scheduleInput[String(day)] || []
+    if (!Array.isArray(rawPeriods)) {
+      return buildErrorResult(`星期${day}营业时间配置不合法`, 'SESSION_CORRUPTED')
+    }
+    if (rawPeriods.length > 3) {
+      return buildErrorResult(`星期${day}最多支持3个营业时段`, 'SESSION_CORRUPTED')
+    }
+
+    const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/
+    const cleanedPeriods = []
+    for (const item of rawPeriods) {
+      const start = String(item && item.start || '').trim()
+      const end = String(item && item.end || '').trim()
+      if (!start || !end) {
+        return buildErrorResult(`星期${day}时段配置不能为空`, 'SESSION_CORRUPTED')
+      }
+      if (!timeRegex.test(start) || !timeRegex.test(end)) {
+        return buildErrorResult(`星期${day}时段时间格式不合法`, 'SESSION_CORRUPTED')
+      }
+      if (start >= end) {
+        return buildErrorResult(`星期${day}存在起止时间异常的时段`, 'SESSION_CORRUPTED')
+      }
+      cleanedPeriods.push({ start, end })
+    }
+
+    const sortedPeriods = [...cleanedPeriods].sort((a, b) => a.start.localeCompare(b.start))
+    for (let i = 1; i < sortedPeriods.length; i += 1) {
+      if (sortedPeriods[i].start < sortedPeriods[i - 1].end) {
+        return buildErrorResult(`星期${day}营业时段存在重叠`, 'SESSION_CORRUPTED')
+      }
+    }
+    validatedSchedule[day] = sortedPeriods
+  }
+
+  const sanitized = {
+    store: data.store || {},
+    schedule: validatedSchedule,
+    slot_interval: Number(data.slot_interval || 30),
+    holidays: Array.isArray(data.holidays) ? data.holidays : [],
+    max_advance_days: parseIntLike(data.max_advance_days, 14),
+    home_cards: normalizeHomeCards(data.home_cards),
+    facilities: normalizeFacilities(data.facilities),
+    recommended_technicians: normalizeRecommendedTechnicians(data.recommended_technicians)
+  }
+
+  const phone = String(sanitized.store.phone || '')
+  if (phone && !/^1\d{10}$/.test(phone)) {
+    return buildErrorResult('门店联系电话格式不正确', 'SESSION_CORRUPTED')
+  }
+
+  if (sanitized.slot_interval < 15 || sanitized.slot_interval > 240) {
+    return buildErrorResult('时间粒度范围不合法', 'SESSION_CORRUPTED')
+  }
+
+  if (sanitized.max_advance_days < 1 || sanitized.max_advance_days > 90) {
+    return buildErrorResult('可预约天数范围不合法', 'SESSION_CORRUPTED')
+  }
+
   const res = await db.collection('business_config').limit(1).get()
 
   if (res.data.length === 0) {
-    await db.collection('business_config').add({ data })
+    await db.collection('business_config').add({ data: sanitized })
   } else {
-    await db.collection('business_config')
-      .doc(res.data[0]._id)
-      .update({ data })
+  await db.collection('business_config')
+    .doc(res.data[0]._id)
+    .update({ data: sanitized })
+
+  await writeAdminAuditLog(adminAuth, 'admin.config.update', {
+    targetType: 'business_config',
+    targetId: res.data[0]?._id || '',
+    status: 'success',
+    changes: sanitized,
+    message: '更新营业配置'
+  })
   }
 
-  return { code: 0, data: { message: '更新成功' } }
+  return buildSuccessResult({ message: '更新成功' })
+}
+
+async function logoutAdmin(adminAuth) {
+  if (!adminAuth || !adminAuth.token) {
+    return buildErrorResult('身份验证失败，请重新登录', 'TOKEN_EXPIRED')
+  }
+
+  const now = Date.now()
+  await db.collection('admin_sessions')
+    .doc(adminAuth.token)
+    .update({
+      data: {
+        status: 'logged_out',
+        last_accessed_at: now,
+        updated_at: now
+      }
+    })
+    .catch(() => {})
+
+  await writeAdminAuditLog(adminAuth, 'admin.logout', {
+    targetType: 'admin_user',
+    targetId: adminAuth.admin_user_id,
+    status: 'success',
+    message: '管理员退出登录'
+  })
+
+  return buildSuccessResult({
+    message: '退出登录成功',
+    status: 'logged_out',
+    session_id: adminAuth.token
+  })
 }
 
 // ==================== 服务管理 ====================
@@ -591,44 +1325,195 @@ async function getServices() {
     }
   }
 
-  return { code: 0, data: res.data }
+  return buildSuccessResult(res.data)
 }
 
-async function createService(data) {
+async function createService(adminAuth = {}, data = {}) {
+  if (!data || typeof data !== 'object') {
+    return buildErrorResult('参数无效', 'SESSION_CORRUPTED')
+  }
+
+  const name = String(data.name || '').trim()
+  if (!name) {
+    return buildErrorResult('服务名称不能为空', 'SESSION_CORRUPTED')
+  }
+  if (name.length > 60) {
+    return buildErrorResult('服务名称长度不能超过60个字符', 'SESSION_CORRUPTED')
+  }
+
+  const duration = Number(data.duration || 0)
+  if (!Number.isInteger(duration) || duration < 15 || duration > 720) {
+    return buildErrorResult('服务时长不合法', 'SESSION_CORRUPTED')
+  }
+
+  const price = Number(data.price || 0)
+  const defaultCommission = Number(data.default_commission || 0)
+  const sortOrder = Number(data.sort_order || 0)
+  if (!Number.isInteger(price) || price < 0 || !Number.isInteger(defaultCommission) || defaultCommission < 0) {
+    return buildErrorResult('金额应为非负整数', 'SESSION_CORRUPTED')
+  }
+  if (defaultCommission > price) {
+    return buildErrorResult('默认提成不能大于服务价格', 'SESSION_CORRUPTED')
+  }
+
+  if (!Number.isInteger(sortOrder) || sortOrder < 0 || sortOrder > 100000) {
+    return buildErrorResult('排序值不合法', 'SESSION_CORRUPTED')
+  }
+
+  const status = data.status || 'active'
+  if (!['active', 'inactive'].includes(status)) {
+    return buildErrorResult('服务状态不合法', 'SESSION_CORRUPTED')
+  }
+
+  const imageUrl = String(data.image_url || data.imageUrl || '').trim()
+  const description = String(data.description || '').trim()
+  if (description.length > 500) {
+    return buildErrorResult('服务描述不能超过500个字符', 'SESSION_CORRUPTED')
+  }
+
   const res = await db.collection('services').add({
     data: {
-      ...data,
-      status: 'active',
+      name,
+      duration: parseIntLike(duration),
+      price: parseIntLike(price, 0),
+      default_commission: parseIntLike(defaultCommission, 0),
+      sort_order: parseIntLike(sortOrder, 0),
+      status,
+      image_url: imageUrl,
+      description,
       created_at: db.serverDate(),
       updated_at: db.serverDate()
     }
   })
 
-  return { code: 0, data: { _id: res._id } }
+  await writeAdminAuditLog(adminAuth, 'admin.service.create', {
+    targetType: 'service',
+    targetId: res._id || '',
+    status: 'success',
+    changes: {
+      name,
+      duration: parseIntLike(duration),
+      price: parseIntLike(price, 0)
+    },
+    message: '新增服务'
+  })
+
+  return buildSuccessResult({ _id: res._id })
 }
 
-async function updateService(data) {
+async function updateService(adminAuth = {}, data = {}) {
+  if (!data || typeof data !== 'object') {
+    return buildErrorResult('参数无效', 'SESSION_CORRUPTED')
+  }
+
   const { id, ...updateData } = data
   if (!id) {
-    return { code: -1, message: '缺少必要参数: id' }
+    return buildErrorResult('缺少必要参数: id', 'SESSION_CORRUPTED')
   }
+
+  const patch = {}
+  const target = await db.collection('services').doc(id).get()
+  if (!target.data) {
+    return buildErrorResult('目标服务不存在', 'SESSION_CORRUPTED')
+  }
+
+  const existingPrice = Number(target.data.price || 0)
+  if (!Number.isInteger(existingPrice) || existingPrice < 0) {
+    return buildErrorResult('目标服务价格异常', 'SESSION_CORRUPTED')
+  }
+
+  let effectivePrice = existingPrice
 
   // 统一图片字段为 image_url
   if (updateData.imageUrl !== undefined) {
     updateData.image_url = updateData.imageUrl
     delete updateData.imageUrl
   }
+  if (updateData.name !== undefined) {
+    const name = String(updateData.name || '').trim()
+    if (!name) {
+      return buildErrorResult('服务名称不能为空', 'SESSION_CORRUPTED')
+    }
+    if (name.length > 60) {
+      return buildErrorResult('服务名称长度不能超过60个字符', 'SESSION_CORRUPTED')
+    }
+    patch.name = name
+  }
+  if (updateData.duration !== undefined) {
+    const duration = Number(updateData.duration)
+    if (!Number.isInteger(duration) || duration < 15 || duration > 720) {
+      return buildErrorResult('服务时长不合法', 'SESSION_CORRUPTED')
+    }
+    patch.duration = parseIntLike(duration, 0)
+  }
+  if (updateData.price !== undefined) {
+    const price = Number(updateData.price)
+    if (!Number.isInteger(price) || price < 0) {
+      return buildErrorResult('服务价格不能小于0', 'SESSION_CORRUPTED')
+    }
+    effectivePrice = parseIntLike(price, 0)
+    patch.price = effectivePrice
+  }
+  if (updateData.default_commission !== undefined) {
+    const defaultCommission = Number(updateData.default_commission)
+    if (!Number.isInteger(defaultCommission) || defaultCommission < 0) {
+      return buildErrorResult('默认提成不能小于0', 'SESSION_CORRUPTED')
+    }
+
+    if (defaultCommission > effectivePrice) {
+      return buildErrorResult('默认提成不能大于服务价格', 'SESSION_CORRUPTED')
+    }
+    patch.default_commission = parseIntLike(defaultCommission, 0)
+  }
+  if (updateData.status !== undefined && !['active', 'inactive'].includes(updateData.status)) {
+    return buildErrorResult('服务状态不合法', 'SESSION_CORRUPTED')
+  }
+  if (updateData.status !== undefined) {
+    patch.status = updateData.status
+  }
+
+  if (updateData.sort_order !== undefined) {
+    const sortOrder = Number(updateData.sort_order)
+    if (!Number.isFinite(sortOrder) || sortOrder < 0 || sortOrder > 100000) {
+      return buildErrorResult('排序值不合法', 'SESSION_CORRUPTED')
+    }
+    patch.sort_order = parseIntLike(sortOrder, 0)
+  }
+
+  if (updateData.image_url !== undefined) {
+    patch.image_url = String(updateData.image_url).trim()
+  }
+
+  if (updateData.description !== undefined) {
+    const description = String(updateData.description || '').trim()
+    if (description.length > 500) {
+      return buildErrorResult('服务描述不能超过500个字符', 'SESSION_CORRUPTED')
+    }
+    patch.description = description
+  }
+
+  if (Object.keys(patch).length === 0) {
+    return buildSuccessResult({ message: '未修改任何字段' })
+  }
 
   await db.collection('services')
     .doc(id)
     .update({
       data: {
-        ...updateData,
+        ...patch,
         updated_at: db.serverDate()
       }
     })
 
-  return { code: 0, data: { message: '更新成功' } }
+  await writeAdminAuditLog(adminAuth, 'admin.service.update', {
+    targetType: 'service',
+    targetId: id,
+    status: 'success',
+    changes: patch,
+    message: '更新服务'
+  })
+
+  return buildSuccessResult({ message: '更新成功' })
 }
 
 // ==================== 技师管理 ====================
@@ -639,23 +1524,50 @@ async function getTechnicians() {
     .orderBy('created_at', 'desc')
     .get()
 
-  return { code: 0, data: res.data }
+  return buildSuccessResult(res.data)
 }
 
-async function createTechnician(data) {
+async function createTechnician(adminAuth = {}, data = {}) {
+  if (!data || typeof data !== 'object') {
+    return buildErrorResult('参数无效', 'SESSION_CORRUPTED')
+  }
+
+  const name = String(data.name || '').trim()
+  const phone = normalizeMobile(data.phone)
+  const openid = String(data.openid || '').trim()
+  if (!name) {
+    return buildErrorResult('技师姓名不能为空', 'SESSION_CORRUPTED')
+  }
+  if (name.length > 32) {
+    return buildErrorResult('技师姓名长度不能超过32个字符', 'SESSION_CORRUPTED')
+  }
+  if (!/^1\d{10}$/.test(phone)) {
+    return buildErrorResult('手机号格式不正确', 'SESSION_CORRUPTED')
+  }
+
   // 检查手机号是否已存在
   const existing = await db.collection('technicians')
-    .where({ phone: data.phone })
+    .where({ phone, status: _.neq('deleted') })
     .get()
 
   if (existing.data.length > 0) {
-    return { code: -1, message: '该手机号已被注册' }
+    return buildErrorResult('该手机号已被注册', 'SESSION_CORRUPTED')
+  }
+
+  if (openid) {
+    const existingOpenid = await db.collection('technicians')
+      .where({ openid, status: _.neq('deleted') })
+      .get()
+    if (existingOpenid.data.length > 0) {
+      return buildErrorResult('该微信已绑定其他技师', 'SESSION_CORRUPTED')
+    }
   }
 
   const res = await db.collection('technicians').add({
     data: {
-      ...data,
-      openid: '',
+      name,
+      phone,
+      openid: openid || '',
       custom_commissions: {},
       status: 'active',
       created_at: db.serverDate(),
@@ -663,42 +1575,165 @@ async function createTechnician(data) {
     }
   })
 
-  return { code: 0, data: { _id: res._id } }
+  await writeAdminAuditLog(adminAuth, 'admin.technician.create', {
+    targetType: 'technician',
+    targetId: res._id || '',
+    status: 'success',
+    changes: { name, phone },
+    message: '新增技师'
+  })
+
+  return buildSuccessResult({ _id: res._id })
 }
 
-async function updateTechnician(data) {
+async function updateTechnician(adminAuth = {}, data = {}) {
+  if (!data || typeof data !== 'object') {
+    return buildErrorResult('参数无效', 'SESSION_CORRUPTED')
+  }
+
   const { id, ...updateData } = data
   if (!id) {
-    return { code: -1, message: '缺少必要参数: id' }
+    return buildErrorResult('缺少必要参数: id', 'SESSION_CORRUPTED')
   }
+
+  const patch = {}
+  if (updateData.name !== undefined) {
+    const name = String(updateData.name || '').trim()
+    if (!name) {
+      return buildErrorResult('技师姓名不能为空', 'SESSION_CORRUPTED')
+    }
+    if (name.length > 32) {
+      return buildErrorResult('技师姓名长度不能超过32个字符', 'SESSION_CORRUPTED')
+    }
+    patch.name = name
+  }
+  if (updateData.phone !== undefined) {
+    const phone = normalizeMobile(updateData.phone)
+    if (!/^1\d{10}$/.test(phone)) {
+      return buildErrorResult('手机号格式不正确', 'SESSION_CORRUPTED')
+    }
+    const existing = await db.collection('technicians')
+      .where({ phone, _id: _.neq(id), status: _.neq('deleted') })
+      .get()
+
+    if (existing.data.length > 0) {
+      return buildErrorResult('该手机号已被注册', 'SESSION_CORRUPTED')
+    }
+    patch.phone = phone
+  }
+  if (updateData.status !== undefined && !['active', 'inactive'].includes(updateData.status)) {
+    return buildErrorResult('状态不合法', 'SESSION_CORRUPTED')
+  }
+  if (updateData.status !== undefined) {
+    patch.status = updateData.status
+  }
+
+  if (updateData.custom_commissions !== undefined) {
+    if (updateData.custom_commissions && typeof updateData.custom_commissions !== 'object') {
+      return buildErrorResult('提成设置不合法', 'SESSION_CORRUPTED')
+    }
+    const cleanedCommissions = {}
+    Object.keys(updateData.custom_commissions || {}).forEach((serviceId) => {
+      const value = Number(updateData.custom_commissions[serviceId])
+      if (!Number.isFinite(value) || value < 0) {
+        return
+      }
+      cleanedCommissions[serviceId] = Math.min(999900, parseIntLike(value, 0))
+    })
+    patch.custom_commissions = cleanedCommissions
+  }
+
+  if (updateData.openid !== undefined) {
+    const openid = String(updateData.openid).trim()
+    if (openid) {
+      const bound = await db.collection('technicians')
+        .where({ openid, _id: _.neq(id), status: _.neq('deleted') })
+        .get()
+
+      if (bound.data.length > 0) {
+        return buildErrorResult('该微信已绑定其他技师', 'SESSION_CORRUPTED')
+      }
+    }
+    patch.openid = openid
+  }
+
+  if (Object.keys(patch).length === 0) {
+    return buildSuccessResult({ message: '未修改任何字段' })
+  }
+
   await db.collection('technicians')
     .doc(id)
     .update({
       data: {
-        ...updateData,
+        ...patch,
         updated_at: db.serverDate()
       }
     })
 
-  return { code: 0, data: { message: '更新成功' } }
+  await writeAdminAuditLog(adminAuth, 'admin.technician.update', {
+    targetType: 'technician',
+    targetId: id,
+    status: 'success',
+    changes: updateData,
+    message: '更新技师'
+  })
+
+  return buildSuccessResult({ message: '更新成功' })
+}
+
+async function deleteTechnician(adminAuth = {}, data = {}) {
+  if (!data || !data.id) {
+    return buildErrorResult('缺少必要参数: id', 'SESSION_CORRUPTED')
+  }
+
+  const target = await db.collection('technicians').doc(data.id).get()
+  if (!target.data || target.data.status === 'deleted') {
+    return buildErrorResult('技师不存在或已删除', 'SESSION_CORRUPTED')
+  }
+
+  await db.collection('technicians')
+    .doc(data.id)
+    .update({
+      data: {
+        status: 'deleted',
+        deleted_at: db.serverDate(),
+        deleted_by: adminAuth.admin_user_id || '',
+        updated_at: db.serverDate()
+      }
+    })
+
+  await writeAdminAuditLog(adminAuth, 'admin.technician.delete', {
+    targetType: 'technician',
+    targetId: data.id,
+    status: 'success',
+    changes: { status: 'deleted' },
+    message: '删除技师'
+  })
+
+  return buildSuccessResult({ message: '删除成功' })
 }
 
 // ==================== 客户管理 ====================
 
 async function getCustomers(params) {
-  const page = (params && params.page) || 1
-  const pageSize = (params && params.page_size) || 20
+  const page = normalizePagination(params && params.page, 1, 200)
+  const pageSize = normalizePagination(params && params.page_size, 20, 200)
 
   let conditions = null
   if (params && params.keyword) {
+    const keyword = String(params.keyword).trim()
+    if (keyword.length > 30) {
+      return buildErrorResult('搜索关键字过长', 'SESSION_CORRUPTED')
+    }
+    const safeKeyword = escapeRegExp(keyword)
     conditions = _.or([
-      { nick_name: db.RegExp({ regexp: params.keyword, options: 'i' }) },
-      { phone: db.RegExp({ regexp: params.keyword, options: 'i' }) }
+      { nick_name: db.RegExp({ regexp: safeKeyword, options: 'i' }) },
+      { phone: db.RegExp({ regexp: safeKeyword, options: 'i' }) }
     ])
   }
 
-  let countQuery = db.collection('users')
-  let dataQuery = db.collection('users')
+  let countQuery = db.collection('users').where({ status: _.neq('deleted') })
+  let dataQuery = db.collection('users').where({ status: _.neq('deleted') })
 
   if (conditions) {
     countQuery = countQuery.where(conditions)
@@ -714,54 +1749,142 @@ async function getCustomers(params) {
     .limit(pageSize)
     .get()
 
-  return { code: 0, data: { list: res.data, total } }
+  return buildSuccessResult({ list: res.data, total })
 }
 
-async function updateCustomer(data) {
+async function updateCustomer(adminAuth = {}, data = {}) {
+  if (!data || typeof data !== 'object') {
+    return buildErrorResult('参数无效', 'SESSION_CORRUPTED')
+  }
+
   const { id, ...updateData } = data
   if (!id) {
-    return { code: -1, message: '缺少必要参数: id' }
+    return buildErrorResult('缺少必要参数: id', 'SESSION_CORRUPTED')
   }
+
+  const patch = {}
+
+  if (updateData.nick_name !== undefined) {
+    const nickName = String(updateData.nick_name || '').trim()
+    if (nickName.length > 32) {
+      return buildErrorResult('昵称长度不能超过32个字符', 'SESSION_CORRUPTED')
+    }
+    patch.nick_name = nickName
+  }
+
+  if (updateData.phone !== undefined) {
+    const phone = normalizeMobile(updateData.phone)
+    if (phone && !/^1\d{10}$/.test(phone)) {
+      return buildErrorResult('手机号格式不正确', 'SESSION_CORRUPTED')
+    }
+    patch.phone = phone
+  }
+
+  if (updateData.notes !== undefined) {
+    const notes = String(updateData.notes || '').trim()
+    if (notes.length > 1000) {
+      return buildErrorResult('备注内容过长，请缩短后再试', 'SESSION_CORRUPTED')
+    }
+    patch.notes = notes
+  }
+
+  if (Object.keys(patch).length === 0) {
+    return buildErrorResult('未修改可变更字段', 'SESSION_CORRUPTED')
+  }
+
+  const target = await db.collection('users').doc(id).get()
+  if (!target.data || target.data.status === 'deleted') {
+    return buildErrorResult('目标客户不存在或已删除', 'SESSION_CORRUPTED')
+  }
+
   await db.collection('users')
     .doc(id)
     .update({
       data: {
-        ...updateData,
+        ...patch,
         updated_at: db.serverDate()
       }
     })
 
-  return { code: 0, data: { message: '更新成功' } }
+  await writeAdminAuditLog(adminAuth, 'admin.customer.update', {
+    targetType: 'user',
+    targetId: id,
+    status: 'success',
+    changes: updateData,
+    message: '更新客户信息'
+  })
+
+  return buildSuccessResult({ message: '更新成功' })
 }
 
-async function deleteCustomer(data) {
+async function deleteCustomer(adminAuth = {}, data = {}) {
   if (!data || !data.id) {
-    return { code: -1, message: '缺少必要参数: id' }
+    return buildErrorResult('缺少必要参数: id', 'SESSION_CORRUPTED')
   }
+
+  const target = await db.collection('users').doc(data.id).get()
+  if (!target.data || target.data.status === 'deleted') {
+    return buildErrorResult('客户不存在或已删除', 'SESSION_CORRUPTED')
+  }
+
   await db.collection('users')
     .doc(data.id)
-    .remove()
+    .update({
+      data: {
+        status: 'deleted',
+        deleted_at: db.serverDate(),
+        updated_at: db.serverDate()
+      }
+    })
 
-  return { code: 0, data: { message: '删除成功' } }
+  await writeAdminAuditLog(adminAuth, 'admin.customer.delete', {
+    targetType: 'user',
+    targetId: data.id,
+    status: 'success',
+    message: '删除客户'
+  })
+
+  return buildSuccessResult({ message: '删除成功' })
 }
 
 // ==================== 预约管理 ====================
 
 async function getAdminAppointments(params) {
-  const page = (params && params.page) || 1
-  const pageSize = (params && params.page_size) || 20
+  const page = normalizePagination(params && params.page, 1, 200)
+  const pageSize = normalizePagination(params && params.page_size, 20, 200)
+  const normalizedStatus = normalizeAppointmentStatus(params && params.status)
 
   let conditions = {}
   if (params) {
     if (params.status) {
-      conditions.status = params.status
+      if (!normalizedStatus) {
+        return buildErrorResult('状态参数不合法', 'SESSION_CORRUPTED')
+      }
+      conditions.status = normalizedStatus
     }
     if (params.technician_id) {
-      conditions.technician_id = params.technician_id
+      conditions.technician_id = String(params.technician_id).trim()
+    }
+    if (params.patient_openid) {
+      conditions.patient_openid = String(params.patient_openid).trim()
     }
     if (params.start_date && params.end_date) {
+      if (!isDateYMD(params.start_date) || !isDateYMD(params.end_date)) {
+        return buildErrorResult('日期范围参数不合法', 'SESSION_CORRUPTED')
+      }
+      if (!isStartNoLaterThanEnd(params.start_date, params.end_date)) {
+        return buildErrorResult('日期范围参数不合法', 'SESSION_CORRUPTED')
+      }
       conditions.date = _.gte(params.start_date).and(_.lte(params.end_date))
+    } else if (params.start_date) {
+      if (!isDateYMD(params.start_date)) {
+        return buildErrorResult('日期参数不合法', 'SESSION_CORRUPTED')
+      }
+      conditions.date = params.start_date
     } else if (params.date) {
+      if (!isDateYMD(params.date)) {
+        return buildErrorResult('日期参数不合法', 'SESSION_CORRUPTED')
+      }
       conditions.date = params.date
     }
   }
@@ -779,9 +1902,9 @@ async function getAdminAppointments(params) {
 
   const res = await dataQuery
     .orderBy('created_at', 'desc')
-    .skip((page - 1) * pageSize)
-    .limit(pageSize)
-    .get()
+      .skip((page - 1) * pageSize)
+      .limit(pageSize)
+      .get()
 
   // 过滤掉 _init 文档
   const realAppointments = res.data.filter(a => !a._init)
@@ -835,7 +1958,7 @@ async function getAdminAppointments(params) {
     }
   }))
 
-  return { code: 0, data: { list: appointments, total } }
+  return buildSuccessResult({ list: appointments, total })
 }
 
 // ==================== 休息管理 ====================
@@ -851,35 +1974,77 @@ async function getHolidays(params) {
     .orderBy('date', 'asc')
     .get()
 
-  return { code: 0, data: res.data }
+  return buildSuccessResult(res.data)
 }
 
-async function addHoliday(data) {
+async function addHoliday(adminAuth = {}, data = {}) {
+  if (!data || typeof data !== 'object') {
+    return buildErrorResult('参数无效', 'SESSION_CORRUPTED')
+  }
+
+  const date = String(data.date || '').trim()
+  if (!isDateYMD(date)) {
+    return buildErrorResult('节假日日期格式不合法', 'SESSION_CORRUPTED')
+  }
+
+  const type = data.type || 'closure'
+  if (!['closure', 'special'].includes(type)) {
+    return buildErrorResult('节假日类型不合法', 'SESSION_CORRUPTED')
+  }
+
+  const reason = normalizeTextField(data.reason, 100)
+  if (!reason || reason.length > 100) {
+    return buildErrorResult(reason ? '节假日说明不能超过 100 字' : '节假日说明不能为空', 'SESSION_CORRUPTED')
+  }
+
+  const dateError = validateDateRangeFilter(date)
+  if (dateError) {
+    return buildErrorResult(dateError, 'SESSION_CORRUPTED')
+  }
+
   // 检查是否已存在
   const existing = await db.collection('holidays')
-    .where({ date: data.date, type: data.type })
+    .where({ date, type })
     .get()
 
   if (existing.data.length > 0) {
-    return { code: -1, message: '该日期已存在' }
+    return buildErrorResult('该日期已存在', 'SESSION_CORRUPTED')
   }
 
   const res = await db.collection('holidays').add({
     data: {
-      ...data,
+      date,
+      type,
+      reason,
+      tenant_scope: DEFAULT_TENANT_SCOPE,
       created_at: db.serverDate()
     }
   })
 
-  return { code: 0, data: { _id: res._id } }
+  await writeAdminAuditLog(adminAuth, 'admin.holiday.add', {
+    targetType: 'holiday',
+    targetId: res._id || '',
+    status: 'success',
+    changes: data,
+    message: '新增节假日休息日'
+  })
+
+  return buildSuccessResult({ _id: res._id })
 }
 
-async function deleteHoliday(data) {
+async function deleteHoliday(adminAuth = {}, data = {}) {
   if (!data || !data.id) {
-    return { code: -1, message: '缺少必要参数: id' }
+  return buildErrorResult('缺少必要参数: id', 'SESSION_CORRUPTED')
   }
   await db.collection('holidays').doc(data.id).remove()
-  return { code: 0, data: { message: '删除成功' } }
+
+  await writeAdminAuditLog(adminAuth, 'admin.holiday.delete', {
+    targetType: 'holiday',
+    targetId: data.id,
+    status: 'success',
+    message: '删除节假日休息日'
+  })
+  return buildSuccessResult({ message: '删除成功' })
 }
 
 async function getTechDaysOff() {
@@ -905,53 +2070,109 @@ async function getTechDaysOff() {
     return { ...item, technician_name: technicianName }
   }))
 
-  return { code: 0, data: daysOff }
+  return buildSuccessResult(daysOff)
 }
 
-async function addTechDayOff(data) {
+async function addTechDayOff(adminAuth = {}, data = {}) {
+  if (!data || typeof data !== 'object') {
+    return buildErrorResult('参数无效', 'SESSION_CORRUPTED')
+  }
+
+  const technicianId = normalizeAdminId(data.technician_id)
+  const date = String(data.date || '').trim()
+  if (!technicianId || !isDateYMD(date)) {
+    return buildErrorResult('缺少技师或日期', 'SESSION_CORRUPTED')
+  }
+
+  const technicianRes = await db.collection('technicians')
+    .doc(technicianId)
+    .get()
+
+  if (!technicianRes.data || technicianRes.data.status === 'deleted') {
+    return buildErrorResult('关联技师不存在', 'SESSION_CORRUPTED')
+  }
+
+  const reason = normalizeTextField(data.reason, 80)
+  if (reason && reason.length > 80) {
+    return buildErrorResult('休息原因不能超过80个字符', 'SESSION_CORRUPTED')
+  }
+
+  const dateError = validateDateRangeFilter(date)
+  if (dateError) {
+    return buildErrorResult(dateError, 'SESSION_CORRUPTED')
+  }
+
   // 检查是否已存在
   const existing = await db.collection('tech_days_off')
     .where({
-      technician_id: data.technician_id,
-      date: data.date
+      technician_id: technicianId,
+      date
     })
     .get()
 
   if (existing.data.length > 0) {
-    return { code: -1, message: '该技师当天已有休假记录' }
+    return buildErrorResult('该技师当天已有休假记录', 'SESSION_CORRUPTED')
   }
 
   const res = await db.collection('tech_days_off').add({
     data: {
-      ...data,
+      technician_id: technicianId,
+      technician_name: technicianRes.data.name || '',
+      date,
+      reason: reason || '',
       created_at: db.serverDate()
     }
   })
 
-  return { code: 0, data: { _id: res._id } }
+  await writeAdminAuditLog(adminAuth, 'admin.tech_dayoff.add', {
+    targetType: 'tech_days_off',
+    targetId: res._id || '',
+    status: 'success',
+    changes: data,
+    message: '新增技师休息日'
+  })
+
+  return buildSuccessResult({ _id: res._id })
 }
 
-async function deleteTechDayOff(data) {
+async function deleteTechDayOff(adminAuth = {}, data = {}) {
   if (!data || !data.id) {
-    return { code: -1, message: '缺少必要参数: id' }
+    return buildErrorResult('缺少必要参数: id', 'SESSION_CORRUPTED')
   }
   await db.collection('tech_days_off').doc(data.id).remove()
-  return { code: 0, data: { message: '删除成功' } }
+
+  await writeAdminAuditLog(adminAuth, 'admin.tech_dayoff.delete', {
+    targetType: 'tech_days_off',
+    targetId: data.id,
+    status: 'success',
+    message: '删除技师休息日'
+  })
+  return buildSuccessResult({ message: '删除成功' })
 }
 
 // ==================== 提成统计 ====================
 
 async function getCommissions(params) {
-  const page = (params && params.page) || 1
-  const pageSize = (params && params.page_size) || 20
+  const page = normalizePagination(params && params.page, 1, 200)
+  const pageSize = normalizePagination(params && params.page_size, 20, 200)
 
   let conditions = {}
+  const technicianId = normalizeAdminId(params && params.technician_id)
+  const hasDateFilter = Boolean((params && (params.start_date || params.end_date)))
+  const dateError = validateDateRangeFilter(params && params.start_date, params && params.end_date, hasDateFilter)
+  if (dateError) {
+    return buildErrorResult(dateError, 'SESSION_CORRUPTED')
+  }
+
   if (params) {
-    if (params.technician_id) {
-      conditions.technician_id = params.technician_id
+    if (technicianId) {
+      if (technicianId.length > 64) {
+        return buildErrorResult('技师 id 长度不合法', 'SESSION_CORRUPTED')
+      }
+      conditions.technician_id = technicianId
     }
     if (params.start_date && params.end_date) {
-      conditions.date = _.gte(params.start_date).and(_.lte(params.end_date))
+      conditions.date = _.gte(String(params.start_date).trim()).and(_.lte(String(params.end_date).trim()))
     }
   }
 
@@ -972,17 +2193,27 @@ async function getCommissions(params) {
     .limit(pageSize)
     .get()
 
-  return { code: 0, data: { list: res.data, total } }
+  return buildSuccessResult({ list: res.data, total })
 }
 
 async function getCommissionSummary(params) {
   let conditions = {}
+  const technicianId = normalizeAdminId(params && params.technician_id)
+  const hasDateFilter = Boolean((params && (params.start_date || params.end_date)))
+  const dateError = validateDateRangeFilter(params && params.start_date, params && params.end_date, hasDateFilter)
+  if (dateError) {
+    return buildErrorResult(dateError, 'SESSION_CORRUPTED')
+  }
+
   if (params) {
-    if (params.technician_id) {
-      conditions.technician_id = params.technician_id
+    if (technicianId) {
+      if (technicianId.length > 64) {
+        return buildErrorResult('技师 id 长度不合法', 'SESSION_CORRUPTED')
+      }
+      conditions.technician_id = technicianId
     }
     if (params.start_date && params.end_date) {
-      conditions.date = _.gte(params.start_date).and(_.lte(params.end_date))
+      conditions.date = _.gte(String(params.start_date).trim()).and(_.lte(String(params.end_date).trim()))
     }
   }
 
@@ -996,7 +2227,7 @@ async function getCommissionSummary(params) {
   const total = res.data.reduce((sum, item) => sum + (item.commission_amount || 0), 0)
   const count = res.data.length
 
-  return { code: 0, data: { total, count } }
+  return buildSuccessResult({ total, count })
 }
 
 // ==================== 文章管理 ====================
@@ -1007,42 +2238,146 @@ async function getArticles() {
     .orderBy('sort_order', 'asc')
     .get()
 
-  return { code: 0, data: res.data }
+  return buildSuccessResult(res.data)
 }
 
-async function createArticle(data) {
+async function createArticle(adminAuth = {}, data = {}) {
+  if (!data || typeof data !== 'object') {
+    return buildErrorResult('参数无效', 'SESSION_CORRUPTED')
+  }
+
+  const title = String(data.title || '').trim()
+  if (!title) {
+    return buildErrorResult('文章标题不能为空', 'SESSION_CORRUPTED')
+  }
+  if (title.length > 80) {
+    return buildErrorResult('文章标题不能超过80个字符', 'SESSION_CORRUPTED')
+  }
+
+  const summary = String(data.summary || '').trim()
+  if (summary.length > 300) {
+    return buildErrorResult('文章摘要不能超过300个字符', 'SESSION_CORRUPTED')
+  }
+
+  const status = data.status || 'draft'
+  if (!['draft', 'published', 'hidden', 'deleted'].includes(status)) {
+    return buildErrorResult('文章状态不合法', 'SESSION_CORRUPTED')
+  }
+
   const res = await db.collection('articles').add({
     data: {
-      ...data,
-      status: data.status || 'draft',
+      title,
+      summary,
+      cover_image: String(data.cover_image || '').trim(),
+      content: String(data.content || '').trim(),
+      sort_order: Number.isFinite(Number(data.sort_order)) ? parseIntLike(data.sort_order, 0) : 0,
+      status,
       created_at: db.serverDate(),
       updated_at: db.serverDate()
     }
   })
 
-  return { code: 0, data: { _id: res._id } }
+  await writeAdminAuditLog(adminAuth, 'admin.article.create', {
+    targetType: 'article',
+    targetId: res._id || '',
+    status: 'success',
+    changes: {
+      title,
+      status
+    },
+    message: '新增文章'
+  })
+
+  return buildSuccessResult({ _id: res._id })
 }
 
-async function updateArticle(data) {
+async function updateArticle(adminAuth = {}, data = {}) {
+  if (!data || typeof data !== 'object') {
+    return buildErrorResult('参数无效', 'SESSION_CORRUPTED')
+  }
+
   const { id, ...updateData } = data
   if (!id) {
-    return { code: -1, message: '缺少必要参数: id' }
+    return buildErrorResult('缺少必要参数: id', 'SESSION_CORRUPTED')
   }
+
+  const patch = {}
+
+  if (updateData.title !== undefined) {
+    const title = String(updateData.title || '').trim()
+    if (!title) {
+      return buildErrorResult('文章标题不能为空', 'SESSION_CORRUPTED')
+    }
+    if (title.length > 80) {
+      return buildErrorResult('文章标题不能超过80个字符', 'SESSION_CORRUPTED')
+    }
+    patch.title = title
+  }
+
+  if (updateData.summary !== undefined) {
+    const summary = String(updateData.summary || '').trim()
+    if (summary.length > 300) {
+      return buildErrorResult('文章摘要不能超过300个字符', 'SESSION_CORRUPTED')
+    }
+    patch.summary = summary
+  }
+
+  if (updateData.cover_image !== undefined) {
+    patch.cover_image = String(updateData.cover_image || '').trim()
+  }
+
+  if (updateData.content !== undefined) {
+    patch.content = String(updateData.content || '').trim()
+  }
+
+  if (updateData.sort_order !== undefined) {
+    const sortOrder = Number(updateData.sort_order)
+    if (!Number.isFinite(sortOrder) || sortOrder < 0 || sortOrder > 100000) {
+      return buildErrorResult('排序值不合法', 'SESSION_CORRUPTED')
+    }
+    patch.sort_order = parseIntLike(sortOrder, 0)
+  }
+
+  if (updateData.status !== undefined && !['draft', 'published', 'hidden'].includes(updateData.status)) {
+    return buildErrorResult('文章状态不合法', 'SESSION_CORRUPTED')
+  }
+  if (updateData.status !== undefined) {
+    patch.status = updateData.status
+  }
+
+  if (Object.keys(patch).length === 0) {
+    return buildSuccessResult({ message: '未修改任何字段' })
+  }
+
   await db.collection('articles')
     .doc(id)
     .update({
       data: {
-        ...updateData,
+        ...patch,
         updated_at: db.serverDate()
       }
     })
 
-  return { code: 0, data: { message: '更新成功' } }
+  await writeAdminAuditLog(adminAuth, 'admin.article.update', {
+    targetType: 'article',
+    targetId: id,
+    status: 'success',
+    changes: patch,
+    message: '更新文章'
+  })
+
+  return buildSuccessResult({ message: '更新成功' })
 }
 
-async function toggleArticleStatus(data) {
+async function toggleArticleStatus(adminAuth = {}, data = {}) {
   if (!data || !data.id) {
-    return { code: -1, message: '缺少必要参数: id' }
+    return buildErrorResult('缺少必要参数: id', 'SESSION_CORRUPTED')
+  }
+  if (!data.status) {
+    return buildErrorResult('缺少文章状态', 'SESSION_CORRUPTED')
+  }
+  if (!['draft', 'published', 'hidden'].includes(data.status)) {
+    return buildErrorResult('文章状态不合法', 'SESSION_CORRUPTED')
   }
   await db.collection('articles')
     .doc(data.id)
@@ -1053,14 +2388,60 @@ async function toggleArticleStatus(data) {
       }
     })
 
-  return { code: 0, data: { message: '状态更新成功' } }
+  await writeAdminAuditLog(adminAuth, 'admin.article.status', {
+    targetType: 'article',
+    targetId: data.id,
+    status: 'success',
+    changes: { status: data.status },
+    message: '切换文章状态'
+  })
+
+  return buildSuccessResult({ message: '状态更新成功' })
+}
+
+function normalizeBoolean(value) {
+  if (typeof value === 'boolean') {
+    return value
+  }
+
+  if (typeof value === 'number') {
+    return value === 1
+  }
+
+  if (typeof value === 'string') {
+    return value === '1' || value.toLowerCase() === 'true'
+  }
+
+  return false
+}
+
+async function deleteArticle(adminAuth = {}, data = {}) {
+  if (!data || !data.id) {
+    return buildErrorResult('缺少必要参数: id', 'SESSION_CORRUPTED')
+  }
+
+  await db.collection('articles').doc(data.id).update({
+    data: {
+      status: 'deleted',
+      updated_at: db.serverDate()
+    }
+  })
+
+  await writeAdminAuditLog(adminAuth, 'admin.article.delete', {
+    targetType: 'article',
+    targetId: data.id,
+    status: 'success',
+    message: '删除文章'
+  })
+
+  return buildSuccessResult({ message: '删除成功' })
 }
 
 // ==================== 新增功能 ====================
 
 async function getAppointmentDetail(data) {
   if (!data || !data.id) {
-    return { code: -1, message: '缺少必要参数: id' }
+    return buildErrorResult('缺少必要参数: id', 'SESSION_CORRUPTED')
   }
   const res = await db.collection('appointments').doc(data.id).get()
   const apt = res.data
@@ -1102,38 +2483,54 @@ async function getAppointmentDetail(data) {
     }
   }
 
-  return {
-    code: 0,
-    data: {
-      ...apt,
-      service_names: serviceNames,
-      technician_name: technicianName,
-      patient_name: patientName,
-      patient_phone: patientPhone
-    }
-  }
+  return buildSuccessResult({
+    ...apt,
+    service_names: serviceNames,
+    technician_name: technicianName,
+    patient_name: patientName,
+    patient_phone: patientPhone
+  })
 }
 
-async function toggleBlacklist(data) {
+async function toggleBlacklist(adminAuth = {}, data = {}) {
   if (!data || !data.id) {
-    return { code: -1, message: '缺少必要参数: id' }
+    return buildErrorResult('缺少必要参数: id', 'SESSION_CORRUPTED')
   }
+
+  if (!['boolean', 'number', 'string'].includes(typeof data.is_blacklisted) ||
+    (typeof data.is_blacklisted === 'string' && !['0', '1', 'true', 'false'].includes(data.is_blacklisted))) {
+    return buildErrorResult('黑名单状态不合法', 'SESSION_CORRUPTED')
+  }
+
+  const isBlacklisted = normalizeBoolean(data.is_blacklisted)
   await db.collection('users')
     .doc(data.id)
     .update({
       data: {
-        is_blacklisted: data.is_blacklisted,
+        is_blacklisted: isBlacklisted,
         updated_at: db.serverDate()
       }
     })
 
-  return { code: 0, data: { message: data.is_blacklisted ? '已加入黑名单' : '已取消黑名单' } }
+  await writeAdminAuditLog(adminAuth, 'admin.customer.blacklist', {
+    targetType: 'user',
+    targetId: data.id,
+    status: 'success',
+    changes: { is_blacklisted: isBlacklisted },
+    message: isBlacklisted ? '加入黑名单' : '移除黑名单'
+  })
+
+  return buildSuccessResult({ message: isBlacklisted ? '已加入黑名单' : '已取消黑名单' })
 }
 
-async function toggleTechnicianStatus(data) {
+async function toggleTechnicianStatus(adminAuth = {}, data = {}) {
   if (!data || !data.id) {
-    return { code: -1, message: '缺少必要参数: id' }
+    return buildErrorResult('缺少必要参数: id', 'SESSION_CORRUPTED')
   }
+  if (!['active', 'inactive'].includes(data.status)) {
+    return buildErrorResult('技师状态不合法', 'SESSION_CORRUPTED')
+  }
+
   await db.collection('technicians')
     .doc(data.id)
     .update({
@@ -1143,7 +2540,15 @@ async function toggleTechnicianStatus(data) {
       }
     })
 
-  return { code: 0, data: { message: '状态更新成功' } }
+  await writeAdminAuditLog(adminAuth, 'admin.technician.status', {
+    targetType: 'technician',
+    targetId: data.id,
+    status: 'success',
+    changes: { status: data.status },
+    message: '更新技师状态'
+  })
+
+  return buildSuccessResult({ message: '状态更新成功' })
 }
 
 // ==================== 导入法定节假日 ====================
@@ -1220,13 +2625,20 @@ function generateSessionId() {
   return id
 }
 
+function normalizeLoginSessionType(type = '') {
+  return type === 'admin_bind' ? 'admin_bind' : 'admin_login'
+}
+
 async function createLoginSession(data = {}) {
+  await cleanupExpiredLoginSessions()
+
   const sessionId = normalizeMiniProgramScene(generateSessionId())
   if (!sessionId) {
-    return { code: -1, message: '会话创建失败' }
+    return buildErrorResult('会话创建失败', 'SESSION_CORRUPTED')
   }
 
   const now = Date.now()
+  const expiresAt = now + LOGIN_SESSION_TTL_MS
 
   await db.collection('login_sessions').add({
     data: {
@@ -1234,10 +2646,28 @@ async function createLoginSession(data = {}) {
       status: 'pending',
       type: 'admin_login',
       openid: '',
+      qr_source: data.prefer_miniprogram_qr ? 'miniprogram' : 'default',
       created_at: now,
-      expires_at: now + 5 * 60 * 1000 // 5 分钟过期
+      expires_at: expiresAt,
+      tenant_scope: DEFAULT_TENANT_SCOPE,
+      session_expire_at: expiresAt
     }
   })
+
+  await writeAdminAuditLog(
+    {},
+    'admin.scan_qr.create',
+    {
+      targetType: 'login_session',
+      targetId: sessionId,
+      status: 'success',
+      message: '管理员扫码登录二维码创建',
+      changes: {
+        type: 'admin_login',
+        source: data.prefer_miniprogram_qr ? 'miniprogram' : 'default'
+      }
+    }
+  )
 
   const qrCodeBase64 = await createMiniProgramLoginQrCode(sessionId)
   if (!qrCodeBase64) {
@@ -1247,36 +2677,44 @@ async function createLoginSession(data = {}) {
         reject_reason: '小程序码生成失败'
       }
     })
-    return { code: -1, message: '小程序码生成失败，请检查微信 AppSecret 或云调用权限配置' }
+    return buildErrorResult('小程序码生成失败，请检查微信 AppSecret 或云调用权限配置', 'SESSION_CORRUPTED')
   }
 
-  return {
-    code: 0,
-    data: {
-      session_id: sessionId,
-      expires_at: now + 5 * 60 * 1000,
-      qr_code_base64: qrCodeBase64,
-      qr_code_type: 'miniprogram'
-    }
-  }
+  return buildSuccessResult(buildScanSessionResponse(sessionId, {
+    status: 'pending',
+    type: 'admin_login',
+    username: '',
+    expires_at: expiresAt,
+    qr_code_base64: qrCodeBase64,
+    qr_code_type: 'miniprogram',
+    message: '请使用微信扫码完成登录确认'
+  }))
 }
 
 async function createAdminBindSession(data = {}) {
+  await cleanupExpiredLoginSessions()
+
   if (!data || !data.id) {
-    return { code: -1, message: '缺少管理员账号 id' }
+    return buildErrorResult('缺少管理员账号 id', 'SESSION_CORRUPTED')
   }
 
   const adminRes = await db.collection('admin_users').doc(data.id).get()
   if (!adminRes.data) {
-    return { code: -1, message: '管理员账号不存在' }
+    return buildErrorResult('管理员账号不存在', 'SESSION_CORRUPTED')
+  }
+
+  if (adminRes.data.status && adminRes.data.status !== 'active') {
+    return buildErrorResult('管理员账号已停用，不能生成绑定二维码', 'SESSION_CORRUPTED')
   }
 
   const sessionId = normalizeMiniProgramScene(generateSessionId())
   if (!sessionId) {
-    return { code: -1, message: '会话创建失败' }
+    return buildErrorResult('会话创建失败', 'SESSION_CORRUPTED')
   }
 
   const now = Date.now()
+  const expiresAt = now + LOGIN_SESSION_TTL_MS
+
   await db.collection('login_sessions').add({
     data: {
       _id: sessionId,
@@ -1285,10 +2723,33 @@ async function createAdminBindSession(data = {}) {
       admin_user_id: data.id,
       admin_username: adminRes.data.username || '',
       openid: '',
+      qr_source: 'miniprogram',
       created_at: now,
-      expires_at: now + 5 * 60 * 1000
+      expires_at: expiresAt,
+      tenant_scope: DEFAULT_TENANT_SCOPE,
+      session_expire_at: expiresAt
     }
   })
+
+  await writeAdminAuditLog(
+    {
+      admin_user_id: adminRes.data._id,
+      username: adminRes.data.username,
+      role: normalizeAdminRole(adminRes.data.role, ''),
+      tenant_scope: DEFAULT_TENANT_SCOPE
+    },
+    'admin.bind_qr.create',
+    {
+      targetType: 'login_session',
+      targetId: sessionId,
+      status: 'success',
+      message: '管理员微信绑定二维码创建',
+      changes: {
+        admin_user_id: data.id,
+        admin_username: adminRes.data.username
+      }
+    }
+  )
 
   const qrCodeBase64 = await createMiniProgramLoginQrCode(sessionId)
   if (!qrCodeBase64) {
@@ -1298,19 +2759,31 @@ async function createAdminBindSession(data = {}) {
         reject_reason: '小程序码生成失败'
       }
     })
-    return { code: -1, message: '小程序码生成失败，请检查微信 AppSecret 或云调用权限配置' }
+    return buildErrorResult('小程序码生成失败，请检查微信 AppSecret 或云调用权限配置', 'SESSION_CORRUPTED')
   }
 
-  return {
-    code: 0,
-    data: {
-      session_id: sessionId,
-      expires_at: now + 5 * 60 * 1000,
-      qr_code_base64: qrCodeBase64,
-      qr_code_type: 'miniprogram',
-      username: adminRes.data.username || ''
-    }
-  }
+  await writeAdminAuditLog({
+    admin_user_id: adminRes.data._id,
+    username: adminRes.data.username,
+    role: adminRes.data.role,
+    tenant_scope: DEFAULT_TENANT_SCOPE
+  }, 'admin.bind_qr_create', {
+    targetType: 'admin_user',
+    targetId: adminRes.data._id,
+    status: 'success',
+    message: '管理员微信绑定二维码生成'
+  })
+
+  return buildSuccessResult(buildScanSessionResponse(sessionId, {
+    status: 'pending',
+    type: 'admin_bind',
+    username: adminRes.data.username || '',
+    expires_at: expiresAt,
+    qr_code_base64: qrCodeBase64,
+    qr_code_type: 'miniprogram',
+    admin_user_id: data.id,
+    message: '请使用微信扫码完成绑定确认'
+  }))
 }
 
 async function createMiniProgramLoginQrCode(sessionId) {
@@ -1369,18 +2842,60 @@ async function createMiniProgramLoginQrCode(sessionId) {
   }
 }
 
-async function confirmLoginSession(data) {
-  if (!data || !data.session_id) {
-    return { code: -1, message: '缺少 session_id' }
+async function createAppointmentQrCode(data = {}) {
+  const scene = String(data.scene || '').trim()
+  const appointmentId = String(data.appointment_id || '').trim()
+
+  if (!/^\d{6}$/.test(scene)) {
+    return buildErrorResult('核销码格式异常', 'SESSION_CORRUPTED')
   }
+
+  const safeAppointmentId = /^[a-zA-Z0-9_-]{1,64}$/.test(appointmentId)
+    ? appointmentId
+    : scene
+
+  try {
+    const accessToken = await getWechatAccessToken()
+    const codeUrl = `https://api.weixin.qq.com/wxa/getwxacodeunlimit?access_token=${encodeURIComponent(accessToken)}`
+    const result = await requestWechatJson(codeUrl, 'POST', {
+      scene,
+      page: 'pages/tech-home/tech-home',
+      check_path: false,
+      env_version: WECHAT_MINIPROGRAM_QR_ENV_VERSION,
+      width: 280
+    })
+
+    if (!result || !result.body || !result.body.length) {
+      throw new Error('小程序码返回为空')
+    }
+
+    const uploadRes = await cloud.uploadFile({
+      cloudPath: `qrcodes/${safeAppointmentId}-${scene}.jpg`,
+      fileContent: result.body
+    })
+
+    return buildSuccessResult({ file_id: uploadRes.fileID })
+  } catch (err) {
+    console.error('生成预约小程序码失败:', err)
+    return buildErrorResult('二维码生成失败：' + (err.message || '未知错误'), 'SESSION_CORRUPTED')
+  }
+}
+
+async function confirmLoginSession(data) {
+  const sessionId = getScanSessionIdFromRequest(data)
+  if (!sessionId) {
+    return buildErrorResult('会话标识不合法', 'SESSION_CORRUPTED')
+  }
+  const now = Date.now()
 
   const markRejected = async (reason, status = 'rejected') => {
     try {
-      await db.collection('login_sessions').doc(data.session_id).update({
+      await db.collection('login_sessions').doc(sessionId).update({
         data: {
           status,
           reject_reason: reason,
-          rejected_at: Date.now()
+          rejected_at: now,
+          updated_at: now
         }
       })
     } catch (err) {
@@ -1390,54 +2905,71 @@ async function confirmLoginSession(data) {
 
   const wxContext = cloud.getWXContext()
   const openid = wxContext.OPENID
-
   if (!openid) {
     await markRejected('无法获取微信身份')
-    return { code: -1, message: '无法获取用户身份' }
+    return buildErrorResult('无法获取用户身份', 'SESSION_CORRUPTED')
   }
 
   try {
-    const session = await db.collection('login_sessions').doc(data.session_id).get()
+    const session = await db.collection('login_sessions').doc(sessionId).get()
+    const sessionData = session.data
 
-    if (!session.data) {
+    if (!sessionData) {
       await markRejected('会话不存在')
-      return { code: -1, message: '登录会话不存在' }
+      return buildErrorResult('登录会话不存在', 'SESSION_CORRUPTED')
     }
 
-    if (session.data.status !== 'pending') {
-      await markRejected('会话已使用或过期', session.data.status || 'rejected')
-      return { code: -1, message: '该登录会话已使用或过期' }
+    if (sessionData.status !== 'pending') {
+      await markRejected('会话已使用或过期', sessionData.status || 'rejected')
+      return buildErrorResult('该登录会话已使用或过期', 'SESSION_CORRUPTED')
     }
 
-    if (Date.now() > session.data.expires_at) {
+    if (Date.now() > Number(sessionData.session_expire_at || sessionData.expires_at || 0)) {
       await markRejected('登录会话已过期')
-      await db.collection('login_sessions').doc(data.session_id).update({
-        data: { status: 'expired' }
+      await db.collection('login_sessions').doc(sessionId).update({
+        data: {
+          status: 'expired',
+          reject_reason: '登录会话已过期',
+          expired_at: now,
+          updated_at: Date.now()
+        }
       })
-      return { code: -1, message: '登录会话已过期' }
+      return buildErrorResult('登录会话已过期', 'SESSION_CORRUPTED')
     }
 
-    if (session.data.type === 'admin_bind') {
-      return await confirmAdminBindSession(data.session_id, session.data, openid, markRejected)
+    if (sessionData.type === 'admin_bind') {
+      return await confirmAdminBindSession(sessionId, sessionData, openid, markRejected)
     }
 
-    return await confirmAdminLoginSession(data.session_id, openid, markRejected)
+    return await confirmAdminLoginSession(sessionId, openid, markRejected)
   } catch (err) {
     await markRejected('确认失败：' + err.message)
-    return { code: -1, message: '确认失败：' + err.message }
+    return buildErrorResult('确认失败：' + err.message, 'SESSION_CORRUPTED')
   }
 }
 
 async function confirmAdminLoginSession(sessionId, openid, markRejected) {
+  let adminUser
+  let adminRole = ''
+
   try {
-    const adminUser = await db.collection('admin_users').where({ openid, status: 'active' }).get()
-    if (adminUser.data.length === 0) {
-      await markRejected('该微信用户未绑定或账号已停用')
-      return { code: -1, message: '无权限访问管理后台，请先在管理员账号中绑定微信' }
+    const adminUserRes = await db.collection('admin_users')
+      .where({ openid, status: 'active' })
+      .get()
+
+    if (!adminUserRes.data || adminUserRes.data.length === 0) {
+      await markRejected('该微信未绑定或账号已停用')
+      return buildErrorResult('无权限访问管理后台，请先在管理员账号中绑定微信', 'SESSION_CORRUPTED')
+    }
+    adminUser = adminUserRes.data[0]
+    adminRole = normalizeAdminRole(adminUser.role, '')
+    if (!adminRole) {
+      await markRejected('管理员角色配置异常')
+      return buildErrorResult('该管理员角色配置异常', 'ROLE_MISMATCH')
     }
   } catch (err) {
     await markRejected('未查询到管理员绑定配置')
-    return { code: -1, message: '无权限访问管理后台，请先在管理员账号中绑定微信' }
+    return buildErrorResult('无权限访问管理后台，请先在管理员账号中绑定微信', 'SESSION_CORRUPTED')
   }
 
   await db.collection('login_sessions').doc(sessionId).update({
@@ -1445,28 +2977,50 @@ async function confirmAdminLoginSession(sessionId, openid, markRejected) {
       status: 'confirmed',
       type: 'admin_login',
       openid,
-      confirmed_at: Date.now()
+      admin_user_id: adminUser._id,
+      admin_username: adminUser.username || '',
+      admin_role: adminRole,
+      admin_permissions: getRolePermissions(adminRole),
+      confirmed_at: Date.now(),
+      updated_at: Date.now()
     }
   })
 
-  return { code: 0, data: { message: '确认登录成功', type: 'admin_login' } }
+  return buildSuccessResult({
+    message: '确认登录成功',
+    type: 'admin_login',
+    status: 'confirmed',
+    session_id: sessionId,
+    admin_username: adminUser.username || '',
+    admin_user_id: adminUser._id,
+    role: adminRole,
+    permissions: getRolePermissions(adminRole),
+    admin_permissions: getRolePermissions(adminRole),
+    tenant_scope: DEFAULT_TENANT_SCOPE
+  })
 }
 
 async function confirmAdminBindSession(sessionId, session, openid, markRejected) {
   if (!session.admin_user_id) {
     await markRejected('绑定会话缺少管理员账号')
-    return { code: -1, message: '绑定会话异常，请重新生成二维码' }
+    return buildErrorResult('绑定会话异常，请重新生成二维码', 'SESSION_CORRUPTED')
   }
 
   const targetRes = await db.collection('admin_users').doc(session.admin_user_id).get()
   if (!targetRes.data) {
     await markRejected('管理员账号不存在')
-    return { code: -1, message: '管理员账号不存在' }
+    return buildErrorResult('管理员账号不存在', 'SESSION_CORRUPTED')
   }
 
   if (targetRes.data.status && targetRes.data.status !== 'active') {
     await markRejected('管理员账号已停用')
-    return { code: -1, message: '管理员账号已停用，不能绑定微信' }
+    return buildErrorResult('管理员账号已停用，不能绑定微信', 'SESSION_CORRUPTED')
+  }
+
+  const adminRole = normalizeAdminRole(targetRes.data.role, '')
+  if (!adminRole) {
+    await markRejected('管理员角色配置异常')
+    return buildErrorResult('该管理员角色配置异常', 'ROLE_MISMATCH')
   }
 
   const existing = await db.collection('admin_users')
@@ -1478,7 +3032,7 @@ async function confirmAdminBindSession(sessionId, session, openid, markRejected)
 
   if (existing.data.length > 0) {
     await markRejected('该微信已绑定其他管理员账号')
-    return { code: -1, message: '该微信已绑定其他管理员账号，请先解绑后重试' }
+    return buildErrorResult('该微信已绑定其他管理员账号，请先解绑后重试', 'SESSION_CORRUPTED')
   }
 
   await db.collection('admin_users').doc(session.admin_user_id).update({
@@ -1494,219 +3048,458 @@ async function confirmAdminBindSession(sessionId, session, openid, markRejected)
       status: 'confirmed',
       type: 'admin_bind',
       openid,
-      confirmed_at: Date.now()
+      admin_role: adminRole,
+      admin_permissions: getRolePermissions(adminRole),
+      confirmed_at: Date.now(),
+      updated_at: Date.now()
     }
   })
 
-  return { code: 0, data: { message: '微信绑定成功', type: 'admin_bind' } }
+  await writeAdminAuditLog({
+    admin_user_id: session.admin_user_id,
+    username: targetRes.data.username,
+    role: adminRole,
+    tenant_scope: DEFAULT_TENANT_SCOPE
+  }, 'admin.bind_wechat', {
+    targetType: 'admin_user',
+    targetId: session.admin_user_id,
+    status: 'success',
+    message: '管理员微信绑定成功'
+  })
+
+  return buildSuccessResult({
+    message: '微信绑定成功',
+    type: 'admin_bind',
+    status: 'confirmed',
+    session_id: sessionId,
+    admin_user_id: session.admin_user_id
+  })
 }
 
 async function checkLoginSession(data) {
-  if (!data || !data.session_id) {
-    return { code: -1, message: '缺少 session_id' }
+  const sessionId = getScanSessionIdFromRequest(data)
+  if (!sessionId) {
+    return buildErrorResult('会话标识不合法', 'SESSION_CORRUPTED')
   }
 
+  const now = Date.now()
+
   try {
-    const session = await db.collection('login_sessions').doc(data.session_id).get()
+    const session = await db.collection('login_sessions').doc(sessionId).get()
+    const sessionData = session.data
 
-    if (!session.data) {
-      return { code: -1, message: '会话不存在' }
+    if (!sessionData) {
+      return buildErrorResult('会话不存在', 'SESSION_CORRUPTED')
     }
 
-    if (Date.now() > session.data.expires_at && session.data.status !== 'logged_in') {
-      await db.collection('login_sessions').doc(data.session_id).update({
-        data: { status: 'expired' }
+    const sessionExpireAt = Number(sessionData.session_expire_at || sessionData.expires_at || 0)
+
+    if (sessionData.status === 'logged_in' && (!sessionExpireAt || now > sessionExpireAt)) {
+      await db.collection('login_sessions').doc(sessionId).update({
+        data: {
+          status: 'expired',
+          reject_reason: '登录会话已过期',
+          expired_at: now,
+          updated_at: now
+        }
       })
-      return { code: 0, data: { status: 'expired' } }
+      return buildSuccessResult(buildScanSessionResponse(sessionId, {
+        status: 'expired',
+        type: normalizeLoginSessionType(sessionData.type),
+        session_expire_at: sessionExpireAt,
+        reason: sessionData.reject_reason || '',
+        reject_reason: sessionData.reject_reason || ''
+      }))
     }
 
-    return {
-      code: 0,
-      data: {
-        status: session.data.status,
-        type: session.data.type || 'admin_login',
-        admin_username: session.data.admin_username || '',
-        reason: session.data.reject_reason || '',
-        reject_reason: session.data.reject_reason || ''
-      }
+    if (Date.now() > sessionExpireAt && sessionData.status !== 'logged_in') {
+      await db.collection('login_sessions').doc(sessionId).update({
+        data: {
+          status: 'expired',
+          reject_reason: '登录会话已过期',
+          expired_at: now,
+          updated_at: now
+        }
+      })
+      return buildSuccessResult(buildScanSessionResponse(sessionId, {
+        status: 'expired',
+        type: normalizeLoginSessionType(sessionData.type),
+        session_expire_at: sessionExpireAt,
+        reason: sessionData.reject_reason || '',
+        reject_reason: sessionData.reject_reason || ''
+      }))
     }
+
+    return buildSuccessResult(buildScanSessionResponse(sessionId, {
+      status: sessionData.status,
+      status_text: sessionData.status,
+      type: normalizeLoginSessionType(sessionData.type),
+      token: sessionData.status === 'logged_in' ? (sessionData.admin_token || '') : '',
+      admin_user_id: sessionData.admin_user_id || '',
+      admin_id: sessionData.admin_user_id || '',
+      admin_username: sessionData.admin_username || '',
+      role: normalizeAdminRole(sessionData.admin_role || sessionData.role || '', ''),
+      tenant_scope: sessionData.tenant_scope || DEFAULT_TENANT_SCOPE,
+      admin_permissions: sessionData.admin_permissions || [],
+      permissions: sessionData.admin_permissions || ((sessionData.admin_role || sessionData.role)
+        ? getRolePermissions(normalizeAdminRole(sessionData.admin_role || sessionData.role || '', ''))
+        : []),
+      reason: sessionData.reject_reason || '',
+      reject_reason: sessionData.reject_reason || '',
+      session_expire_at: sessionExpireAt,
+      session_id: sessionId
+    }))
   } catch (err) {
-    return { code: -1, message: '查询失败：' + err.message }
+    return buildErrorResult('查询失败：' + err.message, 'SESSION_CORRUPTED')
   }
 }
 
 async function scanLogin(data) {
-  if (!data || !data.session_id) {
-    return { code: -1, message: '缺少 session_id' }
+  const sessionId = getScanSessionIdFromRequest(data)
+  if (!sessionId) {
+    return buildErrorResult('会话标识不合法', 'SESSION_CORRUPTED')
   }
 
   try {
-    const session = await db.collection('login_sessions').doc(data.session_id).get()
+    const sessionRes = await db.collection('login_sessions').doc(sessionId).get()
+    const session = sessionRes.data
+    const now = Date.now()
+    const sessionExpireAt = Number(session && (session.session_expire_at || session.expires_at || 0))
 
-    if (!session.data) {
-      return { code: -1, message: '会话不存在' }
+    if (!session) {
+      return buildErrorResult('会话不存在', 'SESSION_CORRUPTED')
     }
 
-    if (session.data.status === 'rejected') {
-      return { code: -1, message: '会话已被拒绝' }
+    if (session.status === 'rejected') {
+      return buildErrorResult('会话已被拒绝', 'SESSION_CORRUPTED')
     }
 
-    if (session.data.type && session.data.type !== 'admin_login') {
-      return { code: -1, message: '该二维码不是登录二维码，请刷新后重试' }
-    }
-
-    if (session.data.status !== 'confirmed') {
-      return { code: -1, message: '会话未确认或已过期' }
-    }
-
-    if (Date.now() > session.data.expires_at) {
-      await db.collection('login_sessions').doc(data.session_id).update({
-        data: { status: 'expired' }
+    if (session.status === 'logged_in' && (!sessionExpireAt || now > sessionExpireAt)) {
+      await db.collection('login_sessions').doc(sessionId).update({
+        data: {
+          status: 'expired',
+          reject_reason: '登录会话已过期',
+          expired_at: now,
+          updated_at: now
+        }
       })
-      return { code: -1, message: '会话已过期' }
+      return buildErrorResult('登录会话已过期', 'SESSION_CORRUPTED')
+    }
+
+    if (session.status === 'logged_in' && session.admin_token) {
+      const sessionRole = normalizeAdminRole(session.admin_role || session.role || '', '')
+      if (!sessionRole) {
+        return buildErrorResult('登录会话角色异常', 'ROLE_MISMATCH')
+      }
+
+      return buildSuccessResult({
+        status: 'logged_in',
+        session_id: sessionId,
+        type: 'admin_login',
+        token: session.admin_token,
+        username: session.admin_username || '',
+        role: sessionRole,
+        permissions: getRolePermissions(sessionRole),
+        admin_permissions: getRolePermissions(sessionRole),
+        tenant_scope: session.tenant_scope || DEFAULT_TENANT_SCOPE,
+        session_expire_at: sessionExpireAt,
+        expires_at: sessionExpireAt,
+        admin_id: session.admin_user_id || '',
+        admin_user_id: session.admin_user_id || ''
+      })
+    }
+
+    if (session.type && session.type !== 'admin_login') {
+      return buildErrorResult('该二维码不是登录二维码，请刷新后重试', 'SESSION_CORRUPTED')
+    }
+
+    if (session.status !== 'confirmed') {
+      return buildErrorResult('会话未确认或已过期', 'SESSION_CORRUPTED')
+    }
+
+    if (!sessionExpireAt || Date.now() > sessionExpireAt) {
+      await db.collection('login_sessions').doc(sessionId).update({
+        data: {
+          status: 'expired',
+          reject_reason: '登录会话已过期',
+          expired_at: Date.now(),
+          updated_at: Date.now()
+        }
+      })
+      return buildErrorResult('会话已过期', 'SESSION_CORRUPTED')
     }
 
     const adminRes = await db.collection('admin_users')
-      .where({ openid: session.data.openid })
+      .where({ openid: session.openid })
       .limit(1)
       .get()
 
-    if (adminRes.data.length === 0) {
-      return { code: -1, message: '该微信未绑定管理员账号' }
+    if (!adminRes.data || adminRes.data.length === 0) {
+      return buildErrorResult('该微信未绑定管理员账号', 'SESSION_CORRUPTED')
     }
 
     const adminUser = adminRes.data[0]
     if (adminUser.status && adminUser.status !== 'active') {
-      return { code: -1, message: '管理员账号已停用' }
+      return buildErrorResult('管理员账号已停用', 'SESSION_CORRUPTED')
     }
 
-    const role = normalizeAdminRole(adminUser.role, 'super_admin')
+    const role = normalizeAdminRole(adminUser.role, '')
+    if (!role) {
+      return buildErrorResult('管理员角色配置异常', 'ROLE_MISMATCH')
+    }
+
     const token = await createAdminSession({
       admin_user_id: adminUser._id,
       username: adminUser.username || '',
       role,
-      openid: adminUser.openid || session.data.openid,
+      openid: adminUser.openid || session.openid,
       login_method: 'scan'
     })
 
-    await db.collection('login_sessions').doc(data.session_id).update({
+    const loginSessionExpireAt = Date.now() + ADMIN_SESSION_TTL_MS
+    await db.collection('login_sessions').doc(sessionId).update({
       data: {
         status: 'logged_in',
         admin_token: token,
-        logged_in_at: Date.now()
+        admin_username: adminUser.username || '',
+        admin_role: role,
+        admin_user_id: adminUser._id,
+        admin_openid: adminUser.openid || session.openid,
+        admin_permissions: getRolePermissions(role),
+        tenant_scope: DEFAULT_TENANT_SCOPE,
+        session_expire_at: loginSessionExpireAt,
+        logged_in_at: Date.now(),
+        updated_at: Date.now()
       }
     })
 
-    return { code: 0, data: { token, username: adminUser.username || '', role } }
+    await writeAdminAuditLog({
+      admin_user_id: adminUser._id,
+      username: adminUser.username,
+      role,
+      tenant_scope: DEFAULT_TENANT_SCOPE
+    }, 'admin.login.scan', {
+      targetType: 'admin_user',
+      targetId: adminUser._id,
+      status: 'success',
+      message: '扫码登录成功'
+    })
+
+      return buildSuccessResult({
+        message: '扫码登录成功',
+        status: 'logged_in',
+        session_id: sessionId,
+        type: 'admin_login',
+        session_expire_at: loginSessionExpireAt,
+        expires_at: loginSessionExpireAt,
+        token,
+        username: adminUser.username || '',
+        role,
+        permissions: getRolePermissions(role),
+        admin_permissions: getRolePermissions(role),
+        admin_id: adminUser._id,
+        admin_user_id: adminUser._id,
+        tenant_scope: DEFAULT_TENANT_SCOPE
+      })
   } catch (err) {
-    return { code: -1, message: '登录失败：' + err.message }
+    return buildErrorResult('登录失败：' + err.message, 'SESSION_CORRUPTED')
   }
 }
 
 // ==================== 管理员账号管理 ====================
 
-async function getCurrentAdmin(event = {}) {
-  const adminAuth = await getAdminAuth(event)
-  if (!adminAuth) {
-    return { code: -1, message: '身份验证失败，请重新登录' }
+async function getCurrentAdmin(adminAuth = {}) {
+  if (!adminAuth || !adminAuth.admin_user_id) {
+    return buildErrorResult('身份验证失败，请重新登录', 'TOKEN_EXPIRED')
   }
 
-  return {
-    code: 0,
-    data: {
-      username: adminAuth.username || '管理员',
-      role: adminAuth.role,
-      openid: adminAuth.openid || ''
-    }
-  }
+  const session = adminAuth
+  return buildSuccessResult({
+    username: session.username || '管理员',
+    role: session.role,
+    openid: session.openid || '',
+    permissions: session.permissions || [],
+    admin_permissions: session.permissions || [],
+    admin_id: session.admin_user_id,
+    tenant_scope: session.tenant_scope || DEFAULT_TENANT_SCOPE,
+    session_expire_at: session.session_expire_at || 0,
+    last_login_at: session.last_login_at || 0
+  })
 }
 
-async function getAdminUsers() {
+async function getAdminAuditLogs(adminAuth = {}, data = {}) {
+  if (!adminAuth || adminAuth.role !== 'super_admin') {
+    return buildErrorResult('当前账号无权限访问审计日志', 'INSUFFICIENT_PERMISSION')
+  }
+
+  const page = normalizePagination(data && data.page, 1, 200)
+  const pageSize = normalizePagination(data && data.page_size, 20, 200)
+
+  const filters = {}
+  if (data && data.admin_user_id) {
+    filters.admin_user_id = data.admin_user_id
+  }
+  if (data && data.action) {
+    filters.action = data.action
+  }
+  if (data && data.target_type) {
+    filters.target_type = data.target_type
+  }
+  if (data && data.target_id) {
+    filters.target_id = data.target_id
+  }
+
+  let query = db.collection('admin_audit_logs')
+  let countQuery = db.collection('admin_audit_logs')
+  Object.keys(filters).forEach((key) => {
+    query = query.where({ [key]: filters[key] })
+    countQuery = countQuery.where({ [key]: filters[key] })
+  })
+
+  const countRes = await countQuery.count()
+  const total = Number(countRes.total || 0)
+
+  const listRes = await query
+    .orderBy('created_at', 'desc')
+    .skip((page - 1) * pageSize)
+    .limit(pageSize)
+    .get()
+
+  return buildSuccessResult({
+    list: listRes.data || [],
+    total,
+    page,
+    page_size: pageSize
+  })
+}
+
+async function getAdminUsers(adminAuth = {}) {
   const res = await db.collection('admin_users')
+    .where({ status: _.neq('deleted') })
     .orderBy('created_at', 'desc')
     .get()
-  return { code: 0, data: res.data.map(sanitizeAdminUser) }
+
+  return buildSuccessResult(
+    res.data
+      .map(sanitizeAdminUser)
+      .map(user => ({
+        ...user,
+        last_login_at: user.last_login_at || 0
+      }))
+  )
 }
 
-async function addAdminUser(data) {
-  const username = (data && data.username || '').trim()
-  const password = (data && data.password || '').trim()
-  const role = normalizeAdminRole(data && typeof data.role === 'string' ? data.role : 'manager', '')
+async function addAdminUser(adminAuth = {}, data = {}) {
+  if (!data || typeof data !== 'object') {
+    return buildErrorResult('参数无效', 'SESSION_CORRUPTED')
+  }
+
+  const username = (data.username || '').trim()
+  const password = (data.password || '').trim()
+  const role = normalizeAdminRole(typeof data.role === 'string' ? data.role : '', '')
+  const openid = (data.openid || '').trim()
 
   if (!username) {
-    return { code: -1, message: '请输入登录账号' }
+    return buildErrorResult('请输入登录账号', 'SESSION_CORRUPTED')
+  }
+  if (username.length > 64) {
+    return buildErrorResult('管理员账号长度不能超过64', 'SESSION_CORRUPTED')
   }
   if (!password) {
-    return { code: -1, message: '请输入登录密码' }
+    return buildErrorResult('请输入登录密码', 'SESSION_CORRUPTED')
+  }
+  if (password.length < 6) {
+    return buildErrorResult('密码长度不能少于6位', 'SESSION_CORRUPTED')
   }
   if (!role) {
-    return { code: -1, message: '管理员角色无效' }
+    return buildErrorResult('管理员角色无效', 'SESSION_CORRUPTED')
   }
 
   const existing = await db.collection('admin_users').where({ username }).get()
   if (existing.data.length > 0) {
-    return { code: -1, message: '账号名称已存在' }
+    return buildErrorResult('账号名称已存在', 'SESSION_CORRUPTED')
   }
 
-  const openid = (data.openid || '').trim()
   if (openid) {
     const existingOpenid = await db.collection('admin_users').where({ openid }).get()
     if (existingOpenid.data.length > 0) {
-      return { code: -1, message: '该微信已绑定其他管理员账号' }
+      return buildErrorResult('该微信已绑定其他管理员账号', 'SESSION_CORRUPTED')
     }
   }
 
-  await db.collection('admin_users').add({
+  const res = await db.collection('admin_users').add({
     data: {
       username,
       password_hash: hashAdminPassword(password),
       openid,
       role,
-      name: data.name || '',
-      remark: data.remark || '',
+      name: (data.name || '').trim(),
+      remark: (data.remark || '').trim(),
       status: 'active',
-      created_at: db.serverDate()
+      created_at: db.serverDate(),
+      updated_at: db.serverDate()
     }
   })
 
-  return { code: 0, data: { message: '添加成功' } }
+  await writeAdminAuditLog(adminAuth, 'admin.add', {
+    targetType: 'admin_user',
+    targetId: res._id,
+    status: 'success',
+    message: '新增管理员账号'
+  })
+
+  return buildSuccessResult({ message: '添加成功', _id: res._id })
 }
 
-async function updateAdminUser(data) {
+async function updateAdminUser(adminAuth = {}, data = {}) {
   if (!data || !data.id) {
-    return { code: -1, message: '缺少 id' }
+    return buildErrorResult('缺少 id', 'SESSION_CORRUPTED')
   }
 
   const updateData = {}
+  const sessionInvalidateReasons = []
 
   if (typeof data.username === 'string') {
     const username = data.username.trim()
     if (!username) {
-      return { code: -1, message: '登录账号不能为空' }
+      return buildErrorResult('登录账号不能为空', 'SESSION_CORRUPTED')
+    }
+    if (username.length > 64) {
+      return buildErrorResult('管理员账号长度不能超过64', 'SESSION_CORRUPTED')
     }
 
     const existing = await db.collection('admin_users')
       .where({
         username,
         _id: _.neq(data.id)
-      }).get()
+      })
+      .get()
+
     if (existing.data.length > 0) {
-      return { code: -1, message: '账号名称已存在' }
+      return buildErrorResult('账号名称已存在', 'SESSION_CORRUPTED')
     }
 
     updateData.username = username
   }
 
   if (typeof data.password === 'string' && data.password.trim()) {
-    updateData.password_hash = hashAdminPassword(data.password)
+    const password = data.password.trim()
+    if (password.length < 6) {
+      return buildErrorResult('密码长度不能少于6位', 'SESSION_CORRUPTED')
+    }
+    updateData.password_hash = hashAdminPassword(password)
   }
 
   if (typeof data.role === 'string') {
     const role = normalizeAdminRole(data.role, '')
     if (!role) {
-      return { code: -1, message: '管理员角色无效' }
+      return buildErrorResult('管理员角色无效', 'SESSION_CORRUPTED')
+    }
+    if (adminAuth.admin_user_id === data.id && role !== adminAuth.role) {
+      return buildErrorResult('不能直接修改当前登录账号的角色', 'SESSION_CORRUPTED')
     }
     updateData.role = role
+    sessionInvalidateReasons.push('角色已变更')
   }
 
   if (typeof data.openid === 'string') {
@@ -1719,36 +3512,123 @@ async function updateAdminUser(data) {
         })
         .get()
       if (existingOpenid.data.length > 0) {
-        return { code: -1, message: '该微信已绑定其他管理员账号' }
+        return buildErrorResult('该微信已绑定其他管理员账号', 'SESSION_CORRUPTED')
       }
     }
     updateData.openid = openid
+    sessionInvalidateReasons.push('微信绑定信息已变更')
   }
+
   if (typeof data.name === 'string') {
+    if (data.name.trim().length > 64) {
+      return buildErrorResult('姓名长度不能超过64', 'SESSION_CORRUPTED')
+    }
     updateData.name = data.name.trim()
   }
+
   if (typeof data.remark === 'string') {
+    if (data.remark.trim().length > 300) {
+      return buildErrorResult('备注长度不能超过300', 'SESSION_CORRUPTED')
+    }
     updateData.remark = data.remark.trim()
   }
+
   if (typeof data.status === 'string' && ['active', 'inactive'].includes(data.status)) {
+    if (adminAuth.admin_user_id === data.id && data.status !== 'active') {
+      return buildErrorResult('不能停用当前登录账号', 'SESSION_CORRUPTED')
+    }
     updateData.status = data.status
+    sessionInvalidateReasons.push('账号状态已变更')
+  } else if (typeof data.status === 'string') {
+    return buildErrorResult('管理员状态不合法', 'SESSION_CORRUPTED')
   }
 
   if (Object.keys(updateData).length === 0) {
-    return { code: 0, data: { message: '未修改任何字段' } }
+    return buildSuccessResult({ message: '未修改任何字段' })
   }
 
   updateData.updated_at = db.serverDate()
-  await db.collection('admin_users').doc(data.id).update({ data: updateData })
+  await db.collection('admin_users').doc(data.id).update({
+    data: updateData
+  })
 
-  return { code: 0, data: { message: '更新成功' } }
-}
-
-async function removeAdminUser(data) {
-  if (!data || !data.id) {
-    return { code: -1, message: '缺少 id' }
+  if (sessionInvalidateReasons.length > 0) {
+    const invalidated = await invalidateAdminSessionsByUser(data.id, sessionInvalidateReasons[0])
+    if (invalidated > 0) {
+      writeAdminAuditLog(adminAuth, 'admin.invalidate_session', {
+        targetType: 'admin_user',
+        targetId: data.id,
+        status: 'success',
+        changes: {
+          reasons: sessionInvalidateReasons,
+          count: invalidated
+        },
+        message: '管理员关键字段变更，已失效历史会话'
+      }).catch(() => {})
+    }
   }
 
-  await db.collection('admin_users').doc(data.id).remove()
-  return { code: 0, data: { message: '删除成功' } }
+  await writeAdminAuditLog(adminAuth, 'admin.update', {
+    targetType: 'admin_user',
+    targetId: data.id,
+    changes: updateData,
+    status: 'success',
+    message: '更新管理员账号'
+  })
+
+  return buildSuccessResult({ message: '更新成功' })
+}
+
+async function removeAdminUser(adminAuth = {}, data = {}) {
+  if (!data || !data.id) {
+    return buildErrorResult('缺少 id', 'SESSION_CORRUPTED')
+  }
+
+  if (adminAuth.admin_user_id === data.id) {
+    return buildErrorResult('不能删除当前登录账号', 'SESSION_CORRUPTED')
+  }
+
+  const target = await db.collection('admin_users').doc(data.id).get()
+  if (!target.data) {
+    return buildErrorResult('管理员账号不存在', 'SESSION_CORRUPTED')
+  }
+
+  if (target.data.role === 'super_admin' && target.data.status !== 'deleted') {
+    const activeSuperAdminRes = await db.collection('admin_users')
+      .where({ role: 'super_admin', status: 'active' })
+      .count()
+
+    if ((activeSuperAdminRes.total || 0) <= 1) {
+      return buildErrorResult('不能删除唯一的超级管理员', 'SESSION_CORRUPTED')
+    }
+  }
+
+  await db.collection('admin_users')
+    .doc(data.id)
+    .update({
+      data: {
+        status: 'deleted',
+        deleted_at: db.serverDate(),
+        deleted_by: adminAuth.admin_user_id || '',
+        openid: '',
+        updated_at: db.serverDate()
+      }
+    })
+
+  await invalidateAdminSessionsByUser(data.id, '管理员账号已被删除')
+  writeAdminAuditLog(adminAuth, 'admin.invalidate_session', {
+    targetType: 'admin_user',
+    targetId: data.id,
+    status: 'success',
+    message: '管理员账号已删除，已失效历史会话'
+  }).catch(() => {})
+
+  await writeAdminAuditLog(adminAuth, 'admin.remove', {
+    targetType: 'admin_user',
+    targetId: data.id,
+    status: 'success',
+    message: '删除管理员账号'
+  })
+
+  return buildSuccessResult({ message: '删除成功' })
 }

@@ -109,10 +109,11 @@ exports.main = async (event, context) => {
     // 6. 获取当天上班技师数
     const techResData = (techRes && techRes.data) ? techRes.data : []
     let techCount = techResData.length
+    const activeTechnicianIds = new Set(techResData.map(tech => tech._id).filter(Boolean))
 
     // 减去当天休假的技师
     const daysOffResData = (daysOffRes && daysOffRes.data) ? daysOffRes.data : []
-    techCount -= daysOffResData.length
+    techCount -= countActiveTechnicianDaysOff(daysOffResData, activeTechnicianIds)
     techCount = Math.max(techCount, 0)
 
     if (techCount === 0) {
@@ -202,6 +203,12 @@ function minutesToTime(minutes) {
   const hours = Math.floor(minutes / 60)
   const mins = minutes % 60
   return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`
+}
+
+function countActiveTechnicianDaysOff(daysOffRecords, activeTechnicianIds) {
+  return (daysOffRecords || []).filter(record =>
+    record && activeTechnicianIds.has(record.technician_id)
+  ).length
 }
 
 function parseYmdToDate(dateStr) {

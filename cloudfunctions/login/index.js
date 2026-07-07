@@ -2,9 +2,62 @@ const cloud = require('wx-server-sdk')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
 const db = cloud.database()
+const DEFAULT_NICK_NAME = '微信用户'
+
+async function findActiveTechnicianByPhone(phoneNumber, openid) {
+  if (!phoneNumber) {
+    return null
+  }
+
+  const techRes = await db.collection('technicians')
+    .where({
+      phone: phoneNumber,
+      status: 'active'
+    })
+    .get()
+
+  const technicianInfo = techRes.data[0] || null
+  if (technicianInfo && (!technicianInfo.openid || technicianInfo.openid !== openid)) {
+    await db.collection('technicians')
+      .doc(technicianInfo._id)
+      .update({
+        data: { openid, updated_at: db.serverDate() }
+      })
+  }
+
+  return technicianInfo
+}
+
+async function findActiveTechnicianForUser(openid, phoneNumber) {
+  const openidTechRes = await db.collection('technicians')
+    .where({
+      openid,
+      status: 'active'
+    })
+    .get()
+
+  if (openidTechRes.data.length > 0) {
+    return openidTechRes.data[0]
+  }
+
+  return await findActiveTechnicianByPhone(phoneNumber, openid)
+}
+
+function buildLoginData(openid, userData, role, technicianInfo, isNewUser = false) {
+  return {
+    openid,
+    role,
+    nick_name: userData.nick_name || DEFAULT_NICK_NAME,
+    avatar_url: userData.avatar_url || '',
+    phone: userData.phone || '',
+    technician_id: technicianInfo ? technicianInfo._id : null,
+    isNewUser,
+    is_blacklisted: userData.is_blacklisted || false
+  }
+}
 
 exports.main = async (event, context) => {
-  const { OPENID, APPID } = cloud.getWXContext()
+  const { OPENID } = cloud.getWXContext()
   const { type } = event
 
   console.log('收到请求:', type)
@@ -15,21 +68,27 @@ exports.main = async (event, context) => {
 
       let phoneNumber = ''
 
-      if (phoneCode) {
-        try {
-          const phoneRes = await Promise.race([
-            cloud.openapi.phonenumber.getPhoneNumber({ code: phoneCode }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('获取手机号超时')), 5000))
-          ])
-          console.log('手机号返回:', JSON.stringify(phoneRes))
-          const phoneInfo = phoneRes.phone_info || phoneRes.phoneInfo
-          const errCode = phoneRes.errcode || phoneRes.errCode
-          if (phoneRes && errCode === 0 && phoneInfo) {
-            phoneNumber = phoneInfo.phoneNumber
-          }
-        } catch (err) {
-          console.error('获取手机号失败(不影响登录):', err.message || err)
+      if (!phoneCode) {
+        return { code: -1, message: '请授权手机号完成快捷登录' }
+      }
+
+      try {
+        const phoneRes = await Promise.race([
+          cloud.openapi.phonenumber.getPhoneNumber({ code: phoneCode }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('获取手机号超时')), 5000))
+        ])
+        const phoneInfo = phoneRes.phone_info || phoneRes.phoneInfo
+        const errCode = phoneRes.errcode === undefined ? phoneRes.errCode : phoneRes.errcode
+        if (phoneRes && errCode === 0 && phoneInfo && phoneInfo.phoneNumber) {
+          phoneNumber = phoneInfo.phoneNumber
+          console.log('手机号授权成功')
         }
+      } catch (err) {
+        console.error('获取手机号失败:', err.message || err)
+      }
+
+      if (!phoneNumber) {
+        return { code: -1, message: '手机号授权失败，请重新登录' }
       }
 
       let role = 'patient'
@@ -38,25 +97,9 @@ exports.main = async (event, context) => {
 
       if (phoneNumber) {
         try {
-          const techRes = await db.collection('technicians')
-            .where({
-              phone: phoneNumber,
-              status: 'active'
-            })
-            .get()
-
-          if (techRes.data.length > 0) {
+          technicianInfo = await findActiveTechnicianByPhone(phoneNumber, OPENID)
+          if (technicianInfo) {
             role = 'technician'
-            technicianInfo = techRes.data[0]
-
-            // 绑定openid到技师记录
-            if (!technicianInfo.openid || technicianInfo.openid !== OPENID) {
-              await db.collection('technicians')
-                .doc(technicianInfo._id)
-                .update({
-                  data: { openid: OPENID, updated_at: db.serverDate() }
-                })
-            }
           }
         } catch (err) {
           console.error('查询技师失败:', err.message || err)
@@ -69,15 +112,16 @@ exports.main = async (event, context) => {
 
       let userData
 
-      const loginNickName = userInfo ? userInfo.nickName : '微信用户'
-      const loginAvatarUrl = userInfo ? userInfo.avatarUrl : ''
+      const loginNickName = userInfo && userInfo.nickName ? userInfo.nickName : DEFAULT_NICK_NAME
 
       if (userRes.data.length > 0) {
         const updateData = {
+          role,
+          last_login_at: db.serverDate(),
           updated_at: db.serverDate()
         }
-        if (loginNickName) updateData.nick_name = loginNickName
-        if (loginAvatarUrl) updateData.avatar_url = loginAvatarUrl
+        if (userInfo && userInfo.nickName) updateData.nick_name = loginNickName
+        if (!userRes.data[0].nick_name) updateData.nick_name = DEFAULT_NICK_NAME
         if (phoneNumber) updateData.phone = phoneNumber
 
         await db.collection('users')
@@ -94,11 +138,15 @@ exports.main = async (event, context) => {
         const newUser = {
           openid: OPENID,
           nick_name: loginNickName,
-          avatar_url: loginAvatarUrl,
+          avatar_url: '',
           phone: phoneNumber || '',
           role: role,
           is_blacklisted: false,
           notes: '',
+          register_source: 'wechat_phone_quick_login',
+          profile_completed: Boolean(userInfo && userInfo.nickName),
+          last_login_at: db.serverDate(),
+          registered_at: db.serverDate(),
           created_at: db.serverDate(),
           updated_at: db.serverDate()
         }
@@ -112,16 +160,47 @@ exports.main = async (event, context) => {
 
       return {
         code: 0,
-        data: {
-          openid: OPENID,
-          role: role,
-          nick_name: userData.nick_name,
-          avatar_url: userData.avatar_url,
-          phone: phoneNumber || '',
-          technician_id: technicianInfo ? technicianInfo._id : null,
-          isNewUser,
-          is_blacklisted: userData.is_blacklisted || false
+        data: buildLoginData(OPENID, userData, role, technicianInfo, isNewUser)
+      }
+    }
+
+    if (type === 'refresh') {
+      const userRes = await db.collection('users')
+        .where({ openid: OPENID })
+        .get()
+
+      if (userRes.data.length === 0) {
+        return { code: 0, data: null }
+      }
+
+      const existingUser = userRes.data[0]
+      let role = 'patient'
+      let technicianInfo = null
+
+      try {
+        technicianInfo = await findActiveTechnicianForUser(OPENID, existingUser.phone || '')
+        if (technicianInfo) {
+          role = 'technician'
         }
+      } catch (err) {
+        console.error('刷新技师身份失败:', err.message || err)
+      }
+
+      const updateData = {
+        role,
+        updated_at: db.serverDate()
+      }
+      if (!existingUser.nick_name) {
+        updateData.nick_name = DEFAULT_NICK_NAME
+      }
+
+      await db.collection('users')
+        .doc(existingUser._id)
+        .update({ data: updateData })
+
+      return {
+        code: 0,
+        data: buildLoginData(OPENID, { ...existingUser, ...updateData }, role, technicianInfo, false)
       }
     }
 
@@ -150,7 +229,7 @@ exports.main = async (event, context) => {
           openid: OPENID,
           role: userRes.data[0].role,
           nick_name: nickName || userRes.data[0].nick_name,
-          avatar_url: avatarUrl || userRes.data[0].avatar_url,
+          avatar_url: avatarUrl || userRes.data[0].avatar_url || '',
           phone: userRes.data[0].phone || ''
         }
       }

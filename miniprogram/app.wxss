@@ -1,9 +1,76 @@
 page {
-  background-color: #f5f5f5;
+  --brand-green: #5a7846;
+  --brand-brown: #644628;
+  --brand-ochre: #c06045;
+  --paper: #f7f3ec;
+  --paper-soft: #fdfbf7;
+  --paper-deep: #efe6d7;
+  --ink: #231f1a;
+  --muted: #7a7165;
+  --line-soft: rgba(100, 70, 40, 0.08);
+  --button-primary-background-color: #5a7846;
+  --button-primary-border-color: #5a7846;
+  --calendar-selected-day-background-color: #5a7846;
+  --calendar-selected-day-color: #fffdf8;
+  --tab-active-text-color: #5a7846;
+  --tabs-bottom-bar-color: #5a7846;
+  background-color: #f7f3ec;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   font-size: 28rpx;
-  color: #333;
+  color: #231f1a;
   line-height: 1.6;
+}
+
+.yxt-page {
+  position: relative;
+  min-height: 100vh;
+  color: var(--ink);
+  background: linear-gradient(180deg, #fdfbf7 0%, #f8f1e8 100%);
+}
+
+.yxt-page-logo {
+  position: absolute;
+  z-index: 0;
+  width: 460rpx;
+  height: 460rpx;
+  opacity: 0.05;
+  pointer-events: none;
+}
+
+.yxt-page-logo.top {
+  right: -150rpx;
+  top: 160rpx;
+}
+
+.yxt-page-logo.bottom {
+  left: -160rpx;
+  bottom: 170rpx;
+  opacity: 0.035;
+}
+
+.yxt-card {
+  position: relative;
+  z-index: 1;
+  border: 1rpx solid var(--line-soft);
+  border-radius: 24rpx;
+  background: rgba(255, 253, 248, 0.94);
+  box-shadow: 0 10rpx 24rpx rgba(59, 46, 42, 0.06);
+}
+
+.yxt-section-title {
+  display: block;
+  font-size: 38rpx;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--ink);
+}
+
+.yxt-section-desc {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 27rpx;
+  line-height: 1.45;
+  color: var(--muted);
 }
 
 button::after {
@@ -16,8 +83,8 @@ button::after {
 
 .card {
   background: #fff;
-  border-radius: 12rpx;
-  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.04);
+  border-radius: 16rpx;
+  box-shadow: 0 10rpx 28rpx rgba(88, 69, 48, 0.07);
 }
 
 /* 通用容器 */
@@ -36,11 +103,11 @@ button::after {
 
 /* 主色调 */
 .text-primary {
-  color: #07c160;
+  color: #5a7846;
 }
 
 .text-success {
-  color: #07c160;
+  color: #5a7846;
 }
 
 .text-warning {
@@ -110,8 +177,8 @@ button::after {
 }
 
 .status-completed {
-  color: #07c160;
-  background: rgba(7, 193, 96, 0.1);
+  color: #5a7846;
+  background: rgba(90, 120, 70, 0.12);
   padding: 4rpx 16rpx;
   border-radius: 8rpx;
   font-size: 24rpx;
@@ -123,4 +190,183 @@ button::after {
   padding: 4rpx 16rpx;
   border-radius: 8rpx;
   font-size: 24rpx;
+}
+
+/* ponytail: one shared visual layer keeps the mini-program coherent without duplicating page CSS. */
+.yxt-page,
+.index-page,
+.booking-page,
+.mine-page,
+.login-page,
+.tech-page {
+  background:
+    radial-gradient(circle at 88% 8%, rgba(90, 120, 70, 0.12), transparent 30%),
+    linear-gradient(180deg, #fdfbf7 0%, #f7f1e8 100%) !important;
+}
+
+.yxt-page-logo,
+.page-logo-watermark,
+.tech-watermark {
+  opacity: 0.075 !important;
+}
+
+.yxt-card,
+.business-card,
+.feature-card,
+.article-empty-card,
+.quick-availability-card,
+.booking-flow-card,
+.step-content,
+.profile-menu,
+.clinic-menu,
+.login-card,
+.profile-form,
+.appointment-item,
+.record-item,
+.confirm-card {
+  border-color: rgba(90, 120, 70, 0.12) !important;
+  border-radius: 28rpx !important;
+  background: rgba(255, 253, 248, 0.96) !important;
+  box-shadow: 0 14rpx 34rpx rgba(91, 68, 42, 0.08) !important;
+}
+
+.business-card,
+.login-card,
+.profile-form,
+.confirm-card,
+.records-hero,
+.info-section,
+.article-body-card,
+.article-body {
+  overflow: hidden;
+}
+
+.business-card::after,
+.login-card::after,
+.profile-form::after,
+.confirm-card::after,
+.records-hero::after,
+.info-section::after,
+.article-body-card::after,
+.article-body::after {
+  content: '';
+  position: absolute;
+  right: -90rpx;
+  bottom: -100rpx;
+  width: 260rpx;
+  height: 260rpx;
+  background: rgba(90, 120, 70, 0.04);
+  opacity: 0.055;
+  pointer-events: none;
+}
+
+.yxt-section-title,
+.business-title,
+.title-text,
+.booking-title,
+.flow-head text:first-child,
+.section-title,
+.member-phone,
+.login-title,
+.profile-title,
+.records-title,
+.info-title,
+.article-title,
+.title {
+  font-weight: 800 !important;
+  color: var(--ink) !important;
+}
+
+.business-subtitle,
+.feature-summary,
+.booking-desc,
+.quick-label,
+.step-text,
+.section-tip,
+.menu-desc,
+.login-desc,
+.profile-subtitle,
+.records-desc,
+.info-label,
+.qr-tip,
+.article-body-card,
+.desc {
+  color: var(--muted) !important;
+}
+
+.van-button,
+button,
+.phone-login-btn,
+.logout-btn,
+.confirm-btn {
+  min-height: 92rpx;
+  border-radius: 999rpx !important;
+  font-size: 30rpx !important;
+  font-weight: 800 !important;
+}
+
+.bottom-bar,
+.action-section,
+.submit-section {
+  padding-bottom: calc(24rpx + env(safe-area-inset-bottom)) !important;
+  background: rgba(255, 253, 248, 0.98) !important;
+  box-shadow: 0 -10rpx 28rpx rgba(91, 68, 42, 0.1) !important;
+}
+
+
+/* ponytail: one shared custom nav for non-tab mini-program pages. */
+.yxt-page-with-tabbar {
+  padding-bottom: calc(190rpx + env(safe-area-inset-bottom)) !important;
+  box-sizing: border-box;
+}
+
+.yxt-page-with-tabbar.yxt-page-with-action {
+  padding-bottom: calc(330rpx + env(safe-area-inset-bottom)) !important;
+}
+
+.yxt-lite-tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 80;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  padding: 14rpx 42rpx calc(20rpx + env(safe-area-inset-bottom));
+  background: rgba(255, 253, 248, 0.98);
+  border-top: 1rpx solid rgba(100, 70, 40, 0.1);
+  box-shadow: 0 -10rpx 28rpx rgba(91, 68, 42, 0.1);
+}
+
+.yxt-lite-tabbar-item {
+  min-height: 112rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  color: #8a8176;
+  font-size: 24rpx;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.yxt-lite-tabbar-item .van-icon {
+  width: 56rpx;
+  height: 56rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 18rpx;
+  background: #efe8dd;
+  color: #8a8176;
+}
+
+.yxt-lite-tabbar-item.active {
+  color: #4a7254;
+}
+
+.yxt-lite-tabbar-item.active .van-icon {
+  background: #5a7846;
+  color: #fffdf8;
 }

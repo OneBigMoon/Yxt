@@ -2,10 +2,27 @@
   <div class="page-container">
     <div class="page-header">
       <h2 class="page-title">服务管理</h2>
-      <el-button type="primary" @click="showAddDialog">添加服务</el-button>
+      <el-button
+        v-if="canCreateService"
+        type="primary"
+        @click="showAddDialog"
+      >
+        添加服务
+      </el-button>
     </div>
 
-    <el-table :data="services" border class="table-container">
+    <el-empty
+      v-if="loadError"
+      :description="errorMessage || '加载服务列表失败'"
+    >
+      <el-button type="primary" @click="loadData" style="margin-top: 12px;">
+        重试
+      </el-button>
+    </el-empty>
+
+    <el-empty v-else-if="!loading && services.length === 0" description="暂无服务" />
+
+    <el-table v-else :data="services" border class="table-container" v-loading="loading">
       <el-table-column label="图片" width="80">
         <template #default="{ row }">
           <el-image
@@ -40,8 +57,16 @@
       <el-table-column prop="sort_order" label="排序" width="80" />
       <el-table-column label="操作" width="200" fixed="right">
         <template #default="{ row }">
-          <el-button type="primary" link @click="editService(row)">编辑</el-button>
           <el-button
+            v-if="canUpdateService"
+            type="primary"
+            link
+            @click="editService(row)"
+          >
+            编辑
+          </el-button>
+          <el-button
+            v-if="canToggleService"
             :type="row.status === 'active' ? 'warning' : 'success'"
             link
             @click="toggleStatus(row)"
@@ -93,7 +118,7 @@
       <template #footer>
         <div class="dialog-footer">
           <el-button @click="dialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="saveService">保存</el-button>
+          <el-button type="primary" :loading="submitLoading" @click="saveService">保存</el-button>
         </div>
       </template>
     </el-dialog>
@@ -101,14 +126,23 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { serviceApi, uploadFile } from '../api'
+import { hasActionPermission } from '../utils/permissions'
 
 const services = ref([])
 const dialogVisible = ref(false)
 const isEdit = ref(false)
 const currentId = ref('')
+const loading = ref(false)
+const submitLoading = ref(false)
+const loadError = ref(false)
+const errorMessage = ref('')
+
+const canCreateService = computed(() => hasActionPermission('createService'))
+const canUpdateService = computed(() => hasActionPermission('updateService'))
+const canToggleService = computed(() => canUpdateService.value)
 
 const formData = ref({
   name: '',
@@ -135,11 +169,19 @@ onMounted(() => {
 })
 
 async function loadData() {
+  loading.value = true
+  loadError.value = false
+  errorMessage.value = ''
   try {
     services.value = await serviceApi.getList()
   } catch (err) {
     console.error('加载服务数据失败:', err)
     ElMessage.error('加载服务数据失败')
+    loadError.value = true
+    errorMessage.value = err.message || '加载服务列表失败'
+    services.value = []
+  } finally {
+    loading.value = false
   }
 }
 
@@ -173,16 +215,36 @@ function editService(row) {
 }
 
 async function saveService() {
-  if (!formData.value.name) {
+  if (!formData.value.name.trim()) {
     ElMessage.warning('请填写服务名称')
     return
   }
 
-  if ((formData.value.default_commission || 0) > (formData.value.price || 0)) {
+  const duration = Number(formData.value.duration)
+  const price = Number(formData.value.price)
+  const commission = Number(formData.value.default_commission)
+
+  if (!Number.isFinite(duration) || duration < 15) {
+    ElMessage.warning('服务时长至少为 15 分钟')
+    return
+  }
+
+  if (!Number.isFinite(price) || price < 0) {
+    ElMessage.warning('服务价格不能小于 0')
+    return
+  }
+
+  if (!Number.isFinite(commission) || commission < 0) {
+    ElMessage.warning('默认提成不能小于 0')
+    return
+  }
+
+  if (commission > price) {
     ElMessage.warning('默认提成不能大于服务价格')
     return
   }
 
+  submitLoading.value = true
   try {
     const data = {
       ...formData.value,
@@ -201,6 +263,8 @@ async function saveService() {
     loadData()
   } catch (err) {
     ElMessage.error('操作失败')
+  } finally {
+    submitLoading.value = false
   }
 }
 

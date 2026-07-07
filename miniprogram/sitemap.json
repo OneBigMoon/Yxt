@@ -2,6 +2,18 @@
   "desc": "关于本文件的更多信息，请参考文档",
   "rules": [
     {
+      "action": "disallow",
+      "page": "pages/scan-confirm/scan-confirm"
+    },
+    {
+      "action": "disallow",
+      "page": "pages/tech-home/tech-home"
+    },
+    {
+      "action": "disallow",
+      "page": "pages/tech-records/tech-records"
+    },
+    {
       "action": "allow",
       "page": "*"
     }

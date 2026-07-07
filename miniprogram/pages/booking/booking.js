@@ -22,8 +22,13 @@ Page({
     // 可预约性
     pageLoading: true,
     hasAnyAvailable: false,
+    availabilityTitle: '预约已满',
     availabilityMessage: '',
-    dateStatus: {}
+    dateStatus: {},
+    activeGuideTab: 'process',
+    quickAvailability: [],
+    quickAvailabilityLoading: false,
+    dateOptions: []
   },
 
   onLoad() {
@@ -40,6 +45,7 @@ Page({
       this.loadConfig()
         .then(() => this.loadServices())
         .then(() => this.scanAvailability())
+        .then(() => this.loadQuickAvailability())
         .then(() => {
           console.log('[预约页] 初始化流程耗时:', Date.now() - start)
         })
@@ -79,6 +85,7 @@ Page({
       const start = Date.now()
       this.loadConfig()
         .then(() => this.scanAvailability())
+        .then(() => this.loadQuickAvailability())
         .then(() => {
           console.log('[预约页] onShow 刷新耗时:', Date.now() - start)
         })
@@ -97,18 +104,127 @@ Page({
 
       this.setData({
         hasAnyAvailable: result.hasAnyAvailable,
+        availabilityTitle: this.getAvailabilityTitle(result.reason_code),
         availabilityMessage: result.message || '',
         dateStatus: result.dateStatus || {},
+        dateOptions: this.buildDateOptions(result.dateStatus || {}),
         pageLoading: false
       })
     } catch (err) {
       console.error('扫描可预约日期失败:', err)
       this.setData({
         hasAnyAvailable: false,
+        availabilityTitle: '检查失败',
         availabilityMessage: '检查预约状态失败，请重试',
         pageLoading: false
       })
     }
+  },
+
+  getAvailabilityTitle(reasonCode) {
+    const titleMap = {
+      BLACKLISTED: '账号异常',
+      NO_ACTIVE_TECHNICIAN: '暂不可预约',
+      NO_BUSINESS_HOURS: '暂无营业安排',
+      NO_TECHNICIAN_ON_DUTY: '暂不可预约',
+      FULLY_BOOKED: '预约已满'
+    }
+    return titleMap[reasonCode] || '预约已满'
+  },
+
+  buildDateOptions(dateStatus = {}) {
+    const todayStr = this.formatDate(new Date())
+    const tomorrow = new Date()
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    const tomorrowStr = this.formatDate(tomorrow)
+    const weekNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+    const statusText = {
+      available: '可预约',
+      rest: '休息',
+      closure: '停业',
+      full: '已约满'
+    }
+
+    return Object.keys(dateStatus)
+      .sort()
+      .map((date) => {
+        const itemDate = new Date(date)
+        const status = dateStatus[date] && dateStatus[date].status
+        return {
+          date,
+          day: String(itemDate.getDate()).padStart(2, '0'),
+          label: date === todayStr ? '今天' : (date === tomorrowStr ? '明天' : weekNames[itemDate.getDay()]),
+          status,
+          text: statusText[status] || '待确认',
+          disabled: status !== 'available'
+        }
+      })
+  },
+
+  async loadQuickAvailability() {
+    const today = new Date()
+    const tomorrow = new Date(today)
+    tomorrow.setDate(today.getDate() + 1)
+
+    const dates = [
+      { label: '今日', date: this.formatDate(today) },
+      { label: '明日', date: this.formatDate(tomorrow) }
+    ]
+
+    this.setData({ quickAvailabilityLoading: true })
+
+    try {
+      const cards = await Promise.all(dates.map(async item => {
+        const status = this.data.dateStatus[item.date]
+        if (status && status.status !== 'available') {
+          return {
+            ...item,
+            count: 0,
+            status: status.status,
+            text: this.getQuickStatusText(status)
+          }
+        }
+
+        const slots = await getAvailableSlots({
+          date: item.date,
+          serviceIds: [],
+          totalDuration: 30
+        })
+        const count = (slots || []).filter(slot => slot.available).length
+        return {
+          ...item,
+          count,
+          status: count > 0 ? 'available' : 'full',
+          text: count > 0 ? `剩余 ${count} 个时段` : '暂无可约时段'
+        }
+      }))
+
+      this.setData({
+        quickAvailability: cards,
+        quickAvailabilityLoading: false
+      })
+    } catch (err) {
+      console.error('获取快捷可约时段失败:', err)
+      this.setData({
+        quickAvailability: dates.map(item => ({
+          ...item,
+          count: 0,
+          status: 'pending',
+          text: '待刷新'
+        })),
+        quickAvailabilityLoading: false
+      })
+    }
+  },
+
+  getQuickStatusText(statusInfo) {
+    const status = statusInfo && statusInfo.status
+    const map = {
+      rest: '休息',
+      closure: statusInfo && statusInfo.reason ? `停业：${statusInfo.reason}` : '停业',
+      full: '暂无可约时段'
+    }
+    return map[status] || '待确认'
   },
 
   async loadServices() {
@@ -117,7 +233,10 @@ Page({
       const services = await getServices()
       console.log('[预约页] getServices 耗时:', Date.now() - start)
       this.setData({
-        services: (services || []).map(s => ({ ...s, selected: false }))
+        services: (services || []).map(s => ({
+          ...s,
+          selected: false
+        }))
       })
     } catch (err) {
       console.error('获取服务列表失败:', err)
@@ -174,7 +293,16 @@ Page({
     this.setData({
       selectedDate: dateStr,
       showCalendar: false
+    }, () => {
+      this.nextStep()
     })
+  },
+
+  selectDateOption(e) {
+    const date = e.currentTarget.dataset.date
+    if (date) {
+      this.onCalendarDayClick({ detail: date })
+    }
   },
 
   formatDate(date) {
@@ -186,14 +314,19 @@ Page({
 
   toggleService(e) {
     const index = e.currentTarget.dataset.index
-    const services = this.data.services.map((s, i) =>
-      i === index ? { ...s, selected: !s.selected } : s
-    )
+    const services = this.data.services.map((s, i) => ({
+      ...s,
+      selected: i === index
+    }))
 
     const selectedServices = services.filter(s => s.selected)
     const totalDuration = selectedServices.reduce((sum, s) => sum + s.duration, 0)
 
-    this.setData({ services, selectedServices, totalDuration })
+    this.setData({ services, selectedServices, totalDuration }, () => {
+      if (selectedServices.length > 0) {
+        this.nextStep()
+      }
+    })
   },
 
   nextStep() {
@@ -272,6 +405,22 @@ Page({
 
   onCalendarClose() {
     this.setData({ showCalendar: false })
+  },
+
+  switchGuideTab(e) {
+    const tab = e.currentTarget.dataset.tab
+    if (tab) {
+      this.setData({ activeGuideTab: tab })
+    }
+  },
+
+  jumpToBooking() {
+    if (this.data.currentStep === 1) {
+      this.openCalendar()
+      return
+    }
+
+    wx.showToast({ title: '请继续完成当前步骤', icon: 'none' })
   },
 
   async loadTimeSlots() {

@@ -39,7 +39,37 @@
       <el-button type="primary" @click="loadData">查询</el-button>
     </div>
 
-    <el-table :data="appointments" border class="table-container">
+    <div v-if="!loadError" class="appointment-summary">
+      <div class="summary-item summary-total">
+        <span>当前列表</span>
+        <strong>{{ appointmentOverview.total }}</strong>
+      </div>
+      <div class="summary-item summary-todo">
+        <span>待处理</span>
+        <strong>{{ appointmentOverview.todo }}</strong>
+      </div>
+      <div class="summary-item summary-done">
+        <span>已完成</span>
+        <strong>{{ appointmentOverview.completed }}</strong>
+      </div>
+      <div class="summary-item summary-muted">
+        <span>已取消</span>
+        <strong>{{ appointmentOverview.cancelled }}</strong>
+      </div>
+    </div>
+
+    <el-empty
+      v-if="loadError"
+      :description="errorMessage || '加载预约列表失败'"
+    >
+      <el-button type="primary" @click="loadData" style="margin-top: 12px;">
+        重试
+      </el-button>
+    </el-empty>
+
+    <el-empty v-else-if="!loading && appointments.length === 0" description="暂无预约记录" />
+
+    <el-table v-else :data="appointments" border class="table-container" v-loading="loading">
       <el-table-column prop="date" label="日期" width="120" />
       <el-table-column prop="start_time" label="开始时间" width="100" />
       <el-table-column prop="end_time" label="结束时间" width="100" />
@@ -99,11 +129,21 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { appointmentApi, technicianApi } from '../api'
 
 const appointments = ref([])
+
+const appointmentOverview = computed(() => {
+  const list = appointments.value || []
+  return {
+    total: list.length,
+    todo: list.filter(item => item.status === 'pending' || item.status === 'confirmed').length,
+    completed: list.filter(item => item.status === 'completed').length,
+    cancelled: list.filter(item => item.status === 'cancelled').length
+  }
+})
 const technicians = ref([])
 const dateRange = ref([])
 const filters = ref({
@@ -113,6 +153,9 @@ const filters = ref({
 const currentPage = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
+const loading = ref(false)
+const loadError = ref(false)
+const errorMessage = ref('')
 
 const detailVisible = ref(false)
 const currentAppointment = ref({})
@@ -132,6 +175,9 @@ async function loadTechnicians() {
 }
 
 async function loadData() {
+  loading.value = true
+  loadError.value = false
+  errorMessage.value = ''
   try {
     const params = {
       page: currentPage.value,
@@ -145,11 +191,17 @@ async function loadData() {
     }
 
     const data = await appointmentApi.getList(params)
-    appointments.value = data.list || data
+    appointments.value = data.list || data || []
     total.value = data.total || appointments.value.length
   } catch (err) {
     console.error('加载预约数据失败:', err)
     ElMessage.error('加载预约数据失败：' + (err.message || '请检查云开发匿名登录是否已开启'))
+    loadError.value = true
+    errorMessage.value = err.message || '加载预约列表失败'
+    appointments.value = []
+    total.value = 0
+  } finally {
+    loading.value = false
   }
 }
 
@@ -191,5 +243,54 @@ function getStatusText(status) {
   border-radius: 4px;
   padding: 20px;
   box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+}
+
+/* P0 appointments polish */
+.appointment-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.summary-item {
+  min-height: 92px;
+  padding: 18px 20px;
+  border-radius: 16px;
+  background: #fffaf2;
+  border: 1px solid rgba(100, 70, 40, 0.08);
+  box-shadow: 0 12px 30px rgba(93, 71, 45, 0.06);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.summary-item span {
+  color: #7a7165;
+  font-size: 13px;
+}
+
+.summary-item strong {
+  color: #231f1a;
+  font-size: 32px;
+  line-height: 1;
+}
+
+.summary-todo strong {
+  color: #c06045;
+}
+
+.summary-done strong {
+  color: #5a7846;
+}
+
+.summary-muted {
+  background: #f7f3ec;
+}
+
+@media (max-width: 900px) {
+  .appointment-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 </style>

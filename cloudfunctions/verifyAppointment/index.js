@@ -7,11 +7,12 @@ const APPOINTMENT_VERIFIED_TEMPLATE_ID = process.env.SUBSCRIBE_TEMPLATE_APPOINTM
 exports.main = async (event, context) => {
   const { OPENID } = cloud.getWXContext()
   const { id } = event
+  const verifyValue = String(id || '').trim()
 
   try {
     // 参数校验
-    if (!id) {
-      return { code: -1, message: '缺少预约ID' }
+    if (!verifyValue) {
+      return { code: -1, message: '缺少核销码' }
     }
 
     // 验证是否是技师
@@ -28,21 +29,18 @@ exports.main = async (event, context) => {
 
     const technician = techRes.data[0]
 
-    // 查询预约
-    const aptRes = await db.collection('appointments')
-      .doc(id)
-      .get()
-
-    if (!aptRes.data) {
-      return { code: -1, message: '预约不存在' }
+    // 查询预约：新预约用6位核销码，旧流程仍兼容预约ID
+    const lookup = await findAppointmentForVerify(verifyValue)
+    if (!lookup) {
+      return { code: -1, message: isVerifyCode(verifyValue) ? '核销码无效' : '预约不存在' }
     }
 
-    const appointment = aptRes.data
+    const { appointment, appointmentId } = lookup
 
     // 验证预约状态（使用原子操作防重复核销）
     const updateRes = await db.collection('appointments')
       .where({
-        _id: id,
+        _id: appointmentId,
         status: 'pending' // 只有待核销状态才能核销
       })
       .update({
@@ -86,6 +84,56 @@ exports.main = async (event, context) => {
     return { code: -1, message: err.message || '核销失败' }
   }
 };
+
+async function findAppointmentForVerify(value) {
+  if (isVerifyCode(value)) {
+    const codeRes = await db.collection('appointments')
+      .where({ verify_code: value })
+      .orderBy('created_at', 'desc')
+      .limit(1)
+      .get()
+
+    if (codeRes.data && codeRes.data.length > 0) {
+      return {
+        appointment: codeRes.data[0],
+        appointmentId: codeRes.data[0]._id
+      }
+    }
+
+    const sceneRes = await db.collection('appointments')
+      .where({ qr_scene: value })
+      .orderBy('created_at', 'desc')
+      .limit(1)
+      .get()
+
+    if (sceneRes.data && sceneRes.data.length > 0) {
+      return {
+        appointment: sceneRes.data[0],
+        appointmentId: sceneRes.data[0]._id
+      }
+    }
+  }
+
+  try {
+    const aptRes = await db.collection('appointments').doc(value).get()
+    if (aptRes.data) {
+      return {
+        appointment: aptRes.data,
+        appointmentId: value
+      }
+    }
+  } catch (err) {
+    if (!isVerifyCode(value)) {
+      throw err
+    }
+  }
+
+  return null
+}
+
+function isVerifyCode(value) {
+  return /^\d{6}$/.test(String(value || ''))
+}
 
 async function createCommissionRecords(appointment, technician) {
   try {

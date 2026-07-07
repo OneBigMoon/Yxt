@@ -1,4 +1,6 @@
 <view class="booking-page">
+  <image class="page-logo-watermark page-logo-watermark--top" src="/images/logo.jpg" mode="aspectFit"></image>
+
   <!-- 加载中 -->
   <view class="loading-page" wx:if="{{pageLoading}}">
     <van-loading type="spinner" size="40">检查预约状态...</van-loading>
@@ -9,7 +11,7 @@
     <view class="full-icon">
       <van-icon name="warning-o" size="80" color="#ff976a" />
     </view>
-    <text class="full-title">预约已满</text>
+    <text class="full-title">{{availabilityTitle || '预约已满'}}</text>
     <text class="full-message">{{availabilityMessage}}</text>
   </view>
 
@@ -24,66 +26,79 @@
 
   <!-- 正常预约流程 -->
   <block wx:else>
+    <view class="booking-hero" wx:if="{{currentStep === 1}}">
+      <text class="booking-kicker">门诊预约</text>
+      <text class="booking-title">选择日期、服务和时段</text>
+      <text class="booking-desc">系统会根据营业时间和技师排班，为您筛选可预约时段。</text>
+      <view class="hero-availability" wx:if="{{quickAvailability.length > 0 && currentStep < 3}}">
+        <view class="hero-availability-head">
+          <text>近期可约</text>
+          <text wx:if="{{quickAvailabilityLoading}}">刷新中...</text>
+        </view>
+        <view
+          class="hero-availability-item status-{{item.status}}"
+          wx:for="{{quickAvailability}}"
+          wx:key="date"
+        >
+          <text class="quick-label">{{item.label}}</text>
+          <text class="quick-count">{{item.text}}</text>
+          <text class="quick-date">{{item.date}}</text>
+        </view>
+      </view>
+    </view>
+
     <!-- 步骤条 -->
-    <view class="steps">
-      <view class="step {{currentStep >= 1 ? 'active' : ''}}">
-        <view class="step-num">1</view>
-        <text class="step-text">选择日期</text>
-      </view>
-      <view class="step-line {{currentStep >= 2 ? 'active' : ''}}"></view>
-      <view class="step {{currentStep >= 2 ? 'active' : ''}}">
-        <view class="step-num">2</view>
-        <text class="step-text">选择服务</text>
-      </view>
-      <view class="step-line {{currentStep >= 3 ? 'active' : ''}}"></view>
-      <view class="step {{currentStep >= 3 ? 'active' : ''}}">
-        <view class="step-num">3</view>
-        <text class="step-text">选择时段</text>
+    <view class="booking-flow-card booking-flow-card--compact">
+      <view class="steps">
+        <view class="step {{currentStep >= 1 ? 'active' : ''}}">
+          <view class="step-num">1</view>
+          <text class="step-text">选择日期</text>
+        </view>
+        <view class="step-line {{currentStep >= 2 ? 'active' : ''}}"></view>
+        <view class="step {{currentStep >= 2 ? 'active' : ''}}">
+          <view class="step-num">2</view>
+          <text class="step-text">选择服务</text>
+        </view>
+        <view class="step-line {{currentStep >= 3 ? 'active' : ''}}"></view>
+        <view class="step {{currentStep >= 3 ? 'active' : ''}}">
+          <view class="step-num">3</view>
+          <text class="step-text">选择时段</text>
+        </view>
       </view>
     </view>
 
     <!-- 步骤1：选择日期 -->
-    <view class="step-content" wx:if="{{currentStep === 1}}">
-      <view class="section-title">请选择预约日期</view>
-      <view class="section-tip">灰色日期不可选（休息/停业/已满）</view>
+    <view class="step-content step-content--date" wx:if="{{currentStep === 1}}">
+      <view class="section-title">选择预约日期</view>
 
-      <view class="selected-date" wx:if="{{selectedDate}}" bindtap="openCalendar">
-        <text>已选日期：{{selectedDate}}</text>
-        <text class="change-date-tip">点击修改</text>
+      <view class="date-hint" wx:if="{{dateOptions.length === 0}}">
+        <text class="date-guide-title">先选择到店日期</text>
+        <text class="date-guide-desc">正在读取门诊可预约日期，请稍候。</text>
       </view>
 
-      <view class="date-hint" wx:if="{{!selectedDate && !showCalendar}}">
-        <van-button type="primary" plain round block bindtap="openCalendar">选择日期</van-button>
-      </view>
-
-      <van-calendar
-        show="{{showCalendar}}"
-        show-confirm="{{false}}"
-        bind:close="onCalendarClose"
-        bind:select="onCalendarDayClick"
-        min-date="{{minDate}}"
-        max-date="{{maxDate}}"
-        title="选择预约日期"
-        color="#07c160"
-        formatter="{{calendarFormatter}}"
-      />
-
-      <view class="bottom-bar">
-        <van-button
-          type="primary"
-          round
-          block
-          bindtap="nextStep"
-          disabled="{{!selectedDate}}"
+      <view class="date-option-grid" wx:else>
+        <view
+          class="date-option-card {{item.disabled ? 'disabled' : ''}} {{selectedDate === item.date ? 'selected' : ''}}"
+          wx:for="{{dateOptions}}"
+          wx:key="date"
+          data-date="{{item.date}}"
+          bindtap="{{item.disabled ? '' : 'selectDateOption'}}"
         >
-          下一步
-        </van-button>
+          <text class="date-option-label">{{item.label}}</text>
+          <text class="date-option-day">{{item.day}}</text>
+          <text class="date-option-status">{{item.text}}</text>
+        </view>
       </view>
     </view>
 
     <!-- 步骤2：选择服务 -->
-    <view class="step-content" wx:if="{{currentStep === 2}}">
-      <view class="section-title">请选择服务项目（可多选）</view>
+    <view class="step-content step-content--no-bottom" wx:if="{{currentStep === 2}}">
+      <view class="section-title">选择服务项目</view>
+      <view class="booking-summary" wx:if="{{selectedDate}}" bindtap="prevStep">
+        <text class="summary-label">已选日期</text>
+        <text class="summary-value">{{selectedDate}}</text>
+        <text class="summary-action">修改</text>
+      </view>
       <view class="service-list">
         <view
           class="service-item {{item.selected ? 'selected' : ''}}"
@@ -99,32 +114,37 @@
           />
           <view class="service-info">
             <text class="service-name">{{item.name}}</text>
-            <text class="service-duration">{{item.duration}}分钟</text>
+            <view class="service-meta">
+              <text class="service-duration">{{item.duration}}分钟</text>
+            </view>
           </view>
           <van-icon
             name="{{item.selected ? 'passed' : 'circle'}}"
-            color="{{item.selected ? '#07c160' : '#ddd'}}"
+            color="{{item.selected ? '#5a7846' : '#d8d1c7'}}"
             size="24"
           />
         </view>
       </view>
 
-      <view class="bottom-bar">
-        <van-button plain bindtap="prevStep">上一步</van-button>
-        <van-button
-          type="primary"
-          round
-          bindtap="nextStep"
-          disabled="{{selectedServices.length === 0}}"
-        >
-          下一步
-        </van-button>
+      <text class="auto-next-tip">点选服务后自动进入时段选择</text>
+      <view class="bottom-bar bottom-bar--left">
+        <van-button plain custom-class="booking-nav-button" bindtap="prevStep">上一步</van-button>
       </view>
     </view>
 
     <!-- 步骤3：选择时段 -->
     <view class="step-content" wx:if="{{currentStep === 3}}">
-      <view class="section-title">请选择预约时段</view>
+      <view class="section-title">选择预约时段</view>
+      <view class="booking-summary booking-summary--stack">
+        <view class="summary-row">
+          <text class="summary-label">日期</text>
+          <text class="summary-value">{{selectedDate}}</text>
+        </view>
+        <view class="summary-row">
+          <text class="summary-label">服务</text>
+          <text class="summary-value">{{selectedServices[0].name}} · {{totalDuration}}分钟</text>
+        </view>
+      </view>
 
       <van-loading wx:if="{{slotsLoading}}" type="spinner" size="24">
         计算可用时段中...
@@ -149,10 +169,11 @@
       </view>
 
       <view class="bottom-bar">
-        <van-button plain bindtap="prevStep">上一步</van-button>
+        <van-button plain custom-class="booking-nav-button" bindtap="prevStep">上一步</van-button>
         <van-button
           type="primary"
           round
+          custom-class="booking-submit-button"
           bindtap="confirmBooking"
           disabled="{{!selectedSlot}}"
           loading="{{bookingLoading}}"
@@ -172,7 +193,7 @@
       bind:close="onSuccessClose"
     >
       <view class="success-popup">
-        <van-icon name="passed" size="80" color="#07c160" />
+        <van-icon name="passed" size="80" color="#5a7846" />
         <text class="success-title">预约成功</text>
         <text class="success-desc">请到预约列表查看</text>
         <van-button
