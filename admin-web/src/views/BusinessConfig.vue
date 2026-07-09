@@ -125,7 +125,13 @@ function clone(value) {
 
 function createDefaultConfig() {
   return {
-    store: { name: '', phone: '', address: '', latitude: 0, longitude: 0 },
+    store: {
+      name: '市中壹心堂门诊部',
+      phone: '',
+      address: '山东省济南市市中区七贤街道绿地国际城百花明都13号楼临街一层南起第二间',
+      latitude: 36.595557,
+      longitude: 116.955628
+    },
     schedule: { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: [] },
     slot_interval: 30,
     max_advance_days: 14,

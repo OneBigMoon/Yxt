@@ -1,11 +1,11 @@
 {
   "pages": [
-    "pages/login/login",
     "pages/index/index",
     "pages/booking/booking",
     "pages/mine/mine",
     "pages/appointment-detail/appointment-detail",
     "pages/article-detail/article-detail",
+    "pages/login/login",
     "pages/tech-home/tech-home",
     "pages/tech-records/tech-records",
     "pages/my-appointments/my-appointments",
@@ -14,7 +14,7 @@
   ],
   "window": {
     "navigationBarBackgroundColor": "#ffffff",
-    "navigationBarTitleText": "中医门诊",
+    "navigationBarTitleText": "壹心堂中医门诊",
     "navigationBarTextStyle": "black",
     "backgroundColor": "#f7f3ec"
   },
@@ -46,31 +46,16 @@
   },
   "usingComponents": {
     "van-button": "@vant/weapp/button/index",
-    "van-cell": "@vant/weapp/cell/index",
-    "van-cell-group": "@vant/weapp/cell-group/index",
-    "van-field": "@vant/weapp/field/index",
     "van-icon": "@vant/weapp/icon/index",
-    "van-nav-bar": "@vant/weapp/nav-bar/index",
     "van-tab": "@vant/weapp/tab/index",
     "van-tabs": "@vant/weapp/tabs/index",
-    "van-card": "@vant/weapp/card/index",
-    "van-tag": "@vant/weapp/tag/index",
     "van-empty": "@vant/weapp/empty/index",
     "van-loading": "@vant/weapp/loading/index",
-    "van-toast": "@vant/weapp/toast/index",
-    "van-dialog": "@vant/weapp/dialog/index",
-    "van-calendar": "@vant/weapp/calendar/index",
-    "van-grid": "@vant/weapp/grid/index",
-    "van-grid-item": "@vant/weapp/grid-item/index",
-    "van-image": "@vant/weapp/image/index",
-    "van-divider": "@vant/weapp/divider/index",
     "van-notice-bar": "@vant/weapp/notice-bar/index",
     "van-popup": "@vant/weapp/popup/index",
-    "van-radio": "@vant/weapp/radio/index",
-    "van-radio-group": "@vant/weapp/radio-group/index",
-    "van-checkbox": "@vant/weapp/checkbox/index",
-    "van-checkbox-group": "@vant/weapp/checkbox-group/index"
+    "van-checkbox": "@vant/weapp/checkbox/index"
   },
   "sitemapLocation": "sitemap.json",
-  "style": "v2"
+  "style": "v2",
+  "lazyCodeLoading": "requiredComponents"
 }

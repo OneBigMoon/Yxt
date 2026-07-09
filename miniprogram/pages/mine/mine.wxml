@@ -51,19 +51,7 @@
     </view>
   </view>
 
-  <view class="clinic-menu" wx:if="{{businessHourLines.length > 0 || clinicInfo.phone}}">
-    <view class="menu-row" wx:if="{{businessHourLines.length > 0}}">
-      <view class="menu-left">
-        <view class="menu-icon"><van-icon name="clock-o" size="19" color="#5a7846" /></view>
-        <view class="menu-stack">
-          <text class="menu-title">营业时间</text>
-          <text class="menu-desc" wx:for="{{businessHourLines}}" wx:key="day">
-            {{item.day}} {{item.time}}
-          </text>
-        </view>
-      </view>
-    </view>
-
+  <view class="clinic-menu" wx:if="{{clinicInfo.phone}}">
     <view class="menu-row" wx:if="{{clinicInfo.phone}}" bindtap="callPhone">
       <view class="menu-left">
         <view class="menu-icon"><van-icon name="phone-o" size="19" color="#5a7846" /></view>

@@ -29,26 +29,33 @@
 .status-completed,
 .status-cancelled {
   flex-shrink: 0;
-  padding: 8rpx 18rpx;
+  min-width: 98rpx;
+  box-sizing: border-box;
+  padding: 10rpx 18rpx;
   border-radius: 999rpx;
-  font-size: 24rpx;
-  font-weight: 600;
+  border: 1rpx solid transparent;
+  font-size: 25rpx;
+  font-weight: 800;
   line-height: 1.2;
+  text-align: center;
 }
 
 .status-pending {
-  color: #c06045;
-  background: rgba(192, 96, 69, 0.1);
+  color: #b75b42;
+  background: #fff0ea;
+  border-color: rgba(183, 91, 66, 0.16);
 }
 
 .status-completed {
   color: #5a7846;
-  background: rgba(90, 120, 70, 0.12);
+  background: #edf5e8;
+  border-color: rgba(90, 120, 70, 0.16);
 }
 
 .status-cancelled {
-  color: #999;
-  background: rgba(153, 153, 153, 0.1);
+  color: #8a8176;
+  background: #f3eee6;
+  border-color: rgba(138, 129, 118, 0.12);
 }
 
 .info-list {

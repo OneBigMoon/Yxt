@@ -32,50 +32,42 @@ Page({
   },
 
   onLoad() {
-    const { checkAuth } = require('../../utils/auth')
-    checkAuth().then((userInfo) => {
-      const start = Date.now()
+    const start = Date.now()
 
-      if (!userInfo) {
-        wx.redirectTo({ url: '/pages/login/login' })
-        return
-      }
-
-      this._authChecked = true
-      this.loadConfig()
-        .then(() => this.loadServices())
-        .then(() => this.scanAvailability())
-        .then(() => this.loadQuickAvailability())
-        .then(() => {
-          console.log('[预约页] 初始化流程耗时:', Date.now() - start)
-        })
-        .catch((err) => {
-          console.error('[预约页] 初始化失败:', err)
-        })
-
-      this.setData({
-        calendarFormatter: (day) => {
-          const date = new Date(day.date)
-          const dateStr = this.formatDate(date)
-          const status = this.data.dateStatus[dateStr]
-
-          if (status) {
-            if (status.status === 'rest') {
-              day.type = 'disabled'
-              day.bottomInfo = '休息'
-            } else if (status.status === 'closure') {
-              day.type = 'disabled'
-              day.bottomInfo = '停业'
-            } else if (status.status === 'full') {
-              day.type = 'disabled'
-              day.bottomInfo = '约满'
-            }
-            // available: 不设置 type，保持可选
-          }
-
-          return day
-        }
+    this._authChecked = true
+    this.loadConfig()
+      .then(() => this.loadServices())
+      .then(() => this.scanAvailability())
+      .then(() => this.loadQuickAvailability())
+      .then(() => {
+        console.log('[预约页] 初始化流程耗时:', Date.now() - start)
       })
+      .catch((err) => {
+        console.error('[预约页] 初始化失败:', err)
+      })
+
+    this.setData({
+      calendarFormatter: (day) => {
+        const date = new Date(day.date)
+        const dateStr = this.formatDate(date)
+        const status = this.data.dateStatus[dateStr]
+
+        if (status) {
+          if (status.status === 'rest') {
+            day.type = 'disabled'
+            day.bottomInfo = '休息'
+          } else if (status.status === 'closure') {
+            day.type = 'disabled'
+            day.bottomInfo = '停业'
+          } else if (status.status === 'full') {
+            day.type = 'disabled'
+            day.bottomInfo = '约满'
+          }
+          // available: 不设置 type，保持可选
+        }
+
+        return day
+      }
     })
   },
 
@@ -465,6 +457,14 @@ Page({
   async confirmBooking() {
     if (!this.data.selectedSlot) {
       wx.showToast({ title: '请选择时段', icon: 'none' })
+      return
+    }
+
+    const { checkAuth } = require('../../utils/auth')
+    const userInfo = await checkAuth()
+    if (!userInfo) {
+      wx.showToast({ title: '请先登录后确认预约', icon: 'none' })
+      wx.navigateTo({ url: '/pages/login/login' })
       return
     }
 

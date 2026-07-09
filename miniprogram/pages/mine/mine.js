@@ -141,12 +141,37 @@ Page({
 
   openLocation() {
     const { clinicInfo } = this.data
-    if (clinicInfo.latitude && clinicInfo.longitude) {
+    const configuredLatitude = Number(clinicInfo.latitude)
+    const configuredLongitude = Number(clinicInfo.longitude)
+    const hasConfiguredLocation = (
+      Number.isFinite(configuredLatitude) &&
+      Number.isFinite(configuredLongitude) &&
+      configuredLatitude >= -90 &&
+      configuredLatitude <= 90 &&
+      configuredLongitude >= -180 &&
+      configuredLongitude <= 180 &&
+      configuredLatitude !== 0 &&
+      configuredLongitude !== 0
+    )
+    const latitude = hasConfiguredLocation ? configuredLatitude : 36.595557
+    const longitude = hasConfiguredLocation ? configuredLongitude : 116.955628
+
+    if (
+      Number.isFinite(latitude) &&
+      Number.isFinite(longitude) &&
+      latitude >= -90 &&
+      latitude <= 90 &&
+      longitude >= -180 &&
+      longitude <= 180 &&
+      latitude !== 0 &&
+      longitude !== 0
+    ) {
       wx.openLocation({
-        latitude: clinicInfo.latitude,
-        longitude: clinicInfo.longitude,
-        name: clinicInfo.name,
-        address: clinicInfo.address
+        latitude,
+        longitude,
+        scale: 18,
+        name: clinicInfo.name || '市中壹心堂门诊部',
+        address: clinicInfo.address || '山东省济南市市中区七贤街道绿地国际城百花明都13号楼临街一层南起第二间'
       })
     } else {
       wx.showToast({ title: '暂无门店位置信息', icon: 'none' })

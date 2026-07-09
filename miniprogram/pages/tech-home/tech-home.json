@@ -1,8 +1,4 @@
 {
   "navigationBarTitleText": "技师工作台",
-  "enablePullDownRefresh": true,
-  "usingComponents": {
-    "van-tabbar": "@vant/weapp/tabbar/index",
-    "van-tabbar-item": "@vant/weapp/tabbar-item/index"
-  }
+  "enablePullDownRefresh": true
 }

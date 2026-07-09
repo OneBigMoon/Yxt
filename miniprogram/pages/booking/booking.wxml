@@ -27,9 +27,6 @@
   <!-- 正常预约流程 -->
   <block wx:else>
     <view class="booking-hero" wx:if="{{currentStep === 1}}">
-      <text class="booking-kicker">门诊预约</text>
-      <text class="booking-title">选择日期、服务和时段</text>
-      <text class="booking-desc">系统会根据营业时间和技师排班，为您筛选可预约时段。</text>
       <view class="hero-availability" wx:if="{{quickAvailability.length > 0 && currentStep < 3}}">
         <view class="hero-availability-head">
           <text>近期可约</text>
@@ -159,6 +156,7 @@
           data-index="{{index}}"
         >
           <text class="slot-time">{{item.time}}</text>
+          <text class="slot-count">余{{item.remaining || 0}}</text>
         </view>
 
         <van-empty

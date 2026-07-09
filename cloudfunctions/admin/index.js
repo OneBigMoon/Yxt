@@ -1019,11 +1019,12 @@ async function getConfig(event = {}) {
     // 创建默认配置
     const defaultConfig = {
       store: {
-        name: '壹心堂中医门诊',
+        name: '市中壹心堂门诊部',
         phone: '',
-        address: '',
-        latitude: 0,
-        longitude: 0
+        address: '山东省济南市市中区七贤街道绿地国际城百花明都13号楼临街一层南起第二间',
+        latitude: 36.595557,
+        longitude: 116.955628,
+        poi_id: '1740240895264492077'
       },
       schedule: {
         1: [{ start: '09:00', end: '12:00' }, { start: '14:00', end: '18:00' }],

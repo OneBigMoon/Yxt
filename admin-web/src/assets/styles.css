@@ -72,13 +72,13 @@ body {
 }
 
 .status-pending {
-  background-color: #fdf6ec;
+  background-color: #fff3e0;
   color: #e6a23c;
 }
 
 .status-completed {
-  background-color: #f0f9eb;
-  color: #67c23a;
+  background-color: #edf4e8;
+  color: #5a7846;
 }
 
 .status-cancelled {
@@ -87,8 +87,8 @@ body {
 }
 
 .status-active {
-  background-color: #f0f9eb;
-  color: #67c23a;
+  background-color: #edf4e8;
+  color: #5a7846;
 }
 
 .status-inactive {
